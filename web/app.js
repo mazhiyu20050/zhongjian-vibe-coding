@@ -1,6 +1,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let token = '', busy = false, sessionId = null;
+let token = '', busy = false, sessionId = null, lastGoodResult = null;
+function resizeQuestion(){const q=$('question');q.style.height='auto';q.style.height=Math.max(24,q.scrollHeight)+'px';}
+$('question').addEventListener('input',resizeQuestion);
+$('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy)$('query-form').requestSubmit();}});
 function node(tag, text, className) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; }
 function emphasized(tag, text, fragments, className) {
   const el = node(tag, undefined, className), spans = [];
@@ -20,7 +23,7 @@ async function getJSON(url, options = {}) {
   const headers = {...options.headers}; if (token) headers['X-Zhongjian-Token'] = token;
   const response = await fetch(url, {...options, headers}); const data = await response.json();
   if (data.session_id) sessionId = data.session_id;
-  if (!response.ok) throw new Error(data.message || '暂时没有查询成功，请再试一次。');
+  if (!response.ok){const friendly={invalid_json:'这次回答没整理完整，请再发送一次，输入的文字仍在。',output_truncated:'这次回答没整理完整，请再发送一次，输入的文字仍在。',invalid_explanation:'这次解读还没核验好，请再试一次，输入的文字仍在。',tool_budget:'这次检索没完成，请再试一次，输入的文字仍在。'};throw new Error(friendly[data.error]||data.message||'暂时没有查询成功，请再试一次。');}
   return data;
 }
 function reply(text, error = false) { $('results').replaceChildren(node('p', text, error ? 'reply error' : 'reply')); $('results').hidden = false; }
@@ -118,6 +121,7 @@ async function revealSearch() {
   $('thinking').hidden = true;
   document.querySelector('main').classList.add('has-answer');
   $('query-form').hidden = false;
+  resizeQuestion();
   await Promise.all([
     motion($('results'), [{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}], 360),
     motion($('query-form'), [{opacity:0,transform:'translateY(24px) scale(.98)'},{opacity:1,transform:'translateY(0) scale(1)'}], 480)
@@ -133,8 +137,9 @@ $('query-form').addEventListener('submit', async event => {
     const outcome = await response;
     if (outcome.error) throw outcome.error;
     render(outcome.data.result, question);
+    lastGoodResult={result:outcome.data.result,question};
     $('question').value = ''; $('question').placeholder = '继续说说你的想法';
-  } catch (e) { reply(e.message, true); }
+  } catch (e) { if(lastGoodResult){render(lastGoodResult.result,lastGoodResult.question);$('results').prepend(node('p',e.message,'query-error'));}else reply(e.message,true); }
   finally {
     await revealSearch();
     busy = false; $('submit').disabled = false; $('question').disabled = false;
@@ -142,3 +147,5 @@ $('query-form').addEventListener('submit', async event => {
   }
 });
 getJSON('/api/session').then(data => { token = data.token; $('submit').disabled = !data.ready; if (!data.ready) reply('服务尚未就绪，请启动已配置密钥的本机服务。'); }).catch(() => reply('本机服务尚未连接。', true));
+
+resizeQuestion();

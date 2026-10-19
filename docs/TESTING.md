@@ -12,3 +12,8 @@
 
 ## 四宫格更新
 新增四人路由→检索→原句校验→四卡输出的集成回归。浏览器使用合成的准备不足/迟迟不行动问题，验证实际生成四人且两列两行，点击仍可展开。完整回归更新为165项。
+
+## 多行输入及JSON恢复
+增加工具阶段后仍可修复JSON、截断响应有界再生成、重复接口JSON错误会停止的回归。独立无密钥的 `browser_failure_fixture.py` 首次模拟成功、随后模拟JSON错误；浏览器验证草稿不变、无横向隐藏、输入高度覆盖全文、发送按钮恢复可用且旧卡片仍在。该模拟验证仅针对界面容错，不冒充真实AI成功；结果见 reports/textarea-ui-regression.json。
+
+本次最终完整回归168项通过。真实接口另使用合成长问题验证四人结果正常返回；实际输入框的scrollWidth等于clientWidth、scrollHeight等于clientHeight，证明无横向隐藏且高度覆盖文字，见 reports/textarea-live-check.json 与 reports/textarea-wrapping.jpg。

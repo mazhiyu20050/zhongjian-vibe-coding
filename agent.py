@@ -166,6 +166,9 @@ class AgentService:
                  'status': status, 'elapsed_ms': round(elapsed*1000),
                  'timestamp_utc': datetime.now(timezone.utc).isoformat(),
                  'effective': status == 'success' and not result.get('no_change', False)}
+        if status=='error':
+            code=result.get('error')
+            event['error_code']=code if isinstance(code,str) and re.fullmatch(r'[a-z_]{1,80}',code) else 'tool_error'
         with self.lock:
             self.events.append(event)
             self.events = self.events[-512:]
@@ -357,6 +360,7 @@ class AgentService:
         trace = []
         missing_aliases = set()
         format_repairs = 0
+        response_repairs = 0
         current_source_ids = set()
         explicit_readback = bool(re.search(r'第[一二三四五六七八九十\d]+条|这句|这段原文|这条原文|原文.{0,8}(?:意思|解释|上下文)|(?:展开|解读).{0,6}(?:原文|第一|第二)', question))
         try:
@@ -416,19 +420,26 @@ class AgentService:
             while len(state.turns) > 12 or (state.turns and sum(len(json.dumps(t, ensure_ascii=False)) for t in state.turns) > 60000):
                 state.turns.pop(0)
             history = [m for turn in state.turns for m in turn]
-            for iteration in range(6):
+            for iteration in range(8):
                 searched_this_turn = any(e['tool'] == 'search_sources' and e['status'] == 'success' for e in trace)
-                choice = 'none' if format_repairs or iteration == 5 or len(trace) >= 8 else 'auto'
+                choice = 'none' if format_repairs or iteration >= 5 or len(trace) >= 8 else 'auto'
                 if must_retrieve and not searched_this_turn and iteration < 5:
                     choice = {'type': 'function', 'function': {'name': 'search_sources'}}
                 if route_required and not state.skill_route and iteration < 5:
                     choice = {'type':'function','function':{'name':'select_thinkers'}}
-                message = checked('Agent模型调用', lambda: self.call_model(
-                    [system] + history + work, tools=TOOLS,
-                    tool_choice=choice))
+                try:
+                    message = checked('Agent模型调用', lambda: self.call_model(
+                        [system] + history + work, tools=TOOLS, tool_choice=choice))
+                except QueryStageError as exc:
+                    # No local tool has executed for this missing response: one bounded regeneration.
+                    if exc.code not in ('invalid_json','output_truncated') or response_repairs >= 1 or iteration >= 7:
+                        raise
+                    response_repairs += 1
+                    self._record_validation(state,exc.code,{},response_repairs)
+                    continue
                 calls = message.get('tool_calls') or []
                 if calls:
-                    if iteration == 5 or len(trace) + len(calls) > 8:
+                    if iteration >= 5 or len(trace) + len(calls) > 8:
                         raise QueryStageError('工具调度', 'tool_budget', '本轮达到调用上限，请拆分问题后继续。')
                     if (not all(isinstance(c, dict) and isinstance(c.get('id'), str) and c['id'] and isinstance(c.get('function'), dict) for c in calls)
                             or len({c['id'] for c in calls}) != len(calls)):
@@ -463,7 +474,7 @@ class AgentService:
                 if route_required and not state.skill_route:
                     raise QueryStageError('人物选择', 'skill_route_required', '本轮人物观念匹配尚未完成，请重试。')
                 if must_retrieve and not searched_this_turn:
-                    if iteration == 5:
+                    if iteration >= 5:
                         raise QueryStageError('资料检索', 'retrieval_required', '本轮资料检索未完成，请重试。')
                     work.append(message)
                     work.append({'role': 'user', 'content': '已到两次追问上限。本轮必须先调用search_sources检索资料，再给建议，不再提问。'})
@@ -471,7 +482,8 @@ class AgentService:
                 try:
                     parsed = checked('Agent结果解析', lambda: parse_content(message))
                 except QueryStageError as exc:
-                    if format_repairs >= 2 or iteration >= 5 or exc.code not in ('invalid_json', 'output_truncated', 'invalid_object', 'empty_content'):
+                    self._record_validation(state,exc.code,{},format_repairs)
+                    if format_repairs >= 2 or iteration >= 7 or exc.code not in ('invalid_json', 'output_truncated', 'invalid_object', 'empty_content'):
                         raise
                     format_repairs += 1
                     work.append(message)
@@ -521,7 +533,7 @@ class AgentService:
                             raise QueryStageError('引文翻译','invalid_explanation','英文原句需要对应的简体中文译意。')
                 except QueryStageError as exc:
                     self._record_validation(state, exc.code, parsed, format_repairs,getattr(exc,'tendency_code',None))
-                    if format_repairs >= 2 or iteration >= 5 or exc.code not in ('invalid_structure', 'invalid_cards', 'invalid_source_id', 'invalid_quote_id', 'quote_not_exact', 'invalid_explanation', 'invalid_evidence_scope', 'unknown_analysis_source'):
+                    if format_repairs >= 2 or iteration >= 7 or exc.code not in ('invalid_structure', 'invalid_cards', 'invalid_source_id', 'invalid_quote_id', 'quote_not_exact', 'invalid_explanation', 'invalid_evidence_scope', 'unknown_analysis_source'):
                         raise
                     format_repairs += 1
                     work.append(message)

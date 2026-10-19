@@ -48,3 +48,10 @@ main.has-answer #query-form{max-width:760px;margin:22px auto 0}
 
 .cards-grid{align-items:stretch;grid-auto-rows:1fr}.cards-grid:has(>.card[open]){grid-auto-rows:auto;align-items:start}
 @media(max-width:640px){.cards-grid{grid-auto-rows:auto}}
+
+/* The whole question stays visible, instead of scrolling sideways. */
+#query-form{align-items:flex-end;border-radius:28px}
+#question{display:block;flex:1;min-width:0;min-height:24px;margin:8px 0;padding:0;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:15px;line-height:1.6;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+#question::placeholder{color:#a0a19a}
+#query-form #submit{align-self:flex-end}
+.query-error{margin:0 0 16px;color:#8a6257;font-size:13px;line-height:1.7}

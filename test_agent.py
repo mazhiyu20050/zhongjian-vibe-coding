@@ -117,6 +117,31 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(client.call_args.kwargs['tool_choice'], 'none')
         self.assertEqual(len(result['result']['tool_trace']), 1)
 
+    def test_json_repair_still_has_room_after_five_tool_steps(self):
+        client=Mock(side_effect=[tool('search_sources',{'terms':['朋友']},'search-'+str(i)) for i in range(5)]+[
+            {'role':'assistant','content':'{"cards":['},
+            final([{'passage_id':'P1','quote_id':'Q1','explanation':'你可以先听清朋友具体在说什么。'}])])
+        answer=AgentService(self.rows,self.store,client).ask('朋友相处')['result']
+        self.assertEqual(len(answer['cards']),1)
+        self.assertEqual(client.call_count,7)
+        self.assertEqual(client.call_args.kwargs['tool_choice'],'none')
+
+    def test_incomplete_provider_response_has_one_bounded_regeneration(self):
+        from check_api import ModelOutputTruncated
+        client=Mock(side_effect=[ModelOutputTruncated('output_truncated'),
+            tool('search_sources',{'terms':['朋友']}),
+            final([{'passage_id':'P1','quote_id':'Q1','explanation':'你可以先听清朋友具体在说什么。'}])])
+        self.assertEqual(len(AgentService(self.rows,self.store,client).ask('朋友相处')['result']['cards']),1)
+        self.assertEqual(client.call_count,3)
+
+    def test_repeated_provider_json_error_stops_after_one_regeneration(self):
+        client=Mock(side_effect=json.JSONDecodeError('invalid','x',0))
+        from query import QueryStageError
+        with self.assertRaises(QueryStageError) as error:
+            AgentService(self.rows,self.store,client).ask('朋友相处')
+        self.assertEqual(error.exception.code,'invalid_json')
+        self.assertEqual(client.call_count,2)
+
     def test_one_bounded_invalid_json_repair(self):
         client = Mock(side_effect=[tool('search_sources', {'terms': ['朋友']}),
             {'role': 'assistant', 'content': '{"cards":['},
