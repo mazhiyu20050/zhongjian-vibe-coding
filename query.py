@@ -212,7 +212,7 @@ def validate_answer(answer, passages):
     }
     if not isinstance(scope, str) or scope not in notices:
         raise ValueError('证据范围分类异常')
-    if not isinstance(cards, list) or len(cards) > 3 or not isinstance(synthesis, str) or len(synthesis) > 2200:
+    if not isinstance(cards, list) or len(cards) > 4 or not isinstance(synthesis, str) or len(synthesis) > 2200:
         raise ValueError('卡片或综合分析格式异常')
     lookup = {p['id']: p for p in passages}
     verified, seen = [], set()
@@ -305,7 +305,7 @@ def finalize_answer(parsed, passages, aliases):
     lookup = {p['id']: p for p in passages}
     for pid, card in grouped.items():
         person = lookup[pid]['person']
-        if person not in seen_people and len(selected) < 3:
+        if person not in seen_people and len(selected) < 4:
             selected.append(card)
             seen_people.add(person)
     normalized = {**parsed, 'cards': selected,

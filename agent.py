@@ -25,10 +25,10 @@ def definition(name, description, properties):
 
 
 TOOLS = [
-    definition('select_thinkers', '先检验当前问题含义，再根据人物Skill的精简观念优先选择两至三位能提供不同切入点的人；三人都相关时都选，不把一人的结论冒充全部观点。user_facts只逐字摘录当前话题中用户确实说过的连续片段，不把问句改成自述、不改写人称；不确定时填空数组[]，reason说明观念为何适配，不给人物打正确率。',
+    definition('select_thinkers', '先检验当前问题含义，再根据人物Skill的精简观念默认选择四位能提供不同切入点的人；四人都有原文依据时都选，不把一人的结论冒充全部观点。user_facts只逐字摘录当前话题中用户确实说过的连续片段，不把问句改成自述、不改写人称；不确定时填空数组[]，reason说明观念为何适配，不给人物打正确率。',
         {'question_focus': {'type':'string'},
          'user_facts': {'type':'array','items':{'type':'string'}},
-         'selections': {'type':'array','minItems':1,'maxItems':3,'items':{
+         'selections': {'type':'array','minItems':1,'maxItems':4,'items':{
              'type':'object','properties':{'person':{'type':'string'},'concept_id':{'type':'string'},'reason':{'type':'string'}},
              'required':['person','concept_id','reason'],'additionalProperties':False}}}),
     definition('search_sources', '根据当前困惑检索本地人物原著；只检索本轮已选择的作者，不受旧三人名单限制。terms应为2至8字的关键词，繁简均可，如反己、朋友、调查、实践、矛盾、批评；避免单字。',
@@ -72,7 +72,7 @@ SYSTEM = '''每张cards必须增加viewpoint_title字段：用4至10字为这位
 用户确认后必须再次调用同一个修改工具，收到成功结果后才说已完成；仅口头说完成不算操作。
 当前展示卡片顺序及待确认状态会附在本系统消息中；收藏第1条指当前展示卡片，不是检索候选第1条。
 最终只输出JSON：{"cards":[{"passage_id":"P1","quote_id":"Q1","viewpoint_title":"这位人物的观点短标题","explanation":"直接讲清楚的观点","emphasis":["观点中的关键短语"],"translation":"仅英文原句时填写忠实中文译意"}],"synthesis":"你可以……","evidence_scope":"partial"}。
-最多三张卡片，每个人物只选最贴合问题的一张，每个passage_id也只出现一次；同一人的多个引句不要拆成多张卡片；优先呈现两至三个不同且相关的视角。三人都能提供具体帮助就各一张，不只留最高匹配的人。已选人物检索到相关原句时都应展示，解释各自切入点，不写三份相同建议；确无相关原文不硬凑。用户点名人物时只选该人，找不到就说明。选择提供的原文句子编号，别抄写或改写引用。非检索类操作或追问可返回空cards。
+最多四张卡片，每个人物只选最贴合问题的一张，每个passage_id也只出现一次；同一人的多个引句不要拆成多张卡片；默认呈现四个不同且相关的视角。四人都能提供具体帮助就各一张，不只留最高匹配的人。已选人物检索到相关原句时都应展示，解释各自切入点，不写四份相同建议；确无相关原文不硬凑。用户点名人物时只选该人，找不到就说明。选择提供的原文句子编号，别抄写或改写引用。非检索类操作或追问可返回空cards。
 本地库包含王阳明《传习录》《大学问》、毛泽东《毛泽东选集》一至四卷和《毛泽东文集》一至八卷，以及弗洛伊德《自我与本我》《超越快乐原则》《文明及其不满》的历史英译本；新增人物及作品以当前Skill目录和工具返回为准。用来源person核对作者，思想框架标签只是检索导引而非原文。不要把政治军事中的敌我、斗争、消灭直接套到日常朋友关系中。
 所有AI解释、建议和回应都面向“你”，像认真陪你梳理问题的伙伴，温和具体地说明核心思想如何回应你，不机械套“你先做什么、再观察什么”，用第一人称对你讲话，不用“阳明认为”“他提醒”等第三者讲述；不假称真实历史本人，不捏造个人经历。原文引用保持原样；别承诺照做就一定改变别人或消除情绪。
 explanation用人物第一人称直接对“你”讲话，是直接回应用户本轮具体困惑的一句话，建议30至60字、最多75字：把所选原句的意思落到用户的问题上，点明关键区别或具体方向，不泛泛介绍思想，不重复原文，不加标题或来源编号，不评价双方人格；不确定的动机不作断言。synthesis只写1至2句，建议40至70字、最多90字，同样用“你”的口吻；详细解释放在点开原文后的讲述中。原文可能含学生提问或来信，区分它与老师观点。
@@ -218,8 +218,8 @@ class AgentService:
             if (not isinstance(args['question_focus'], str) or not 1 <= len(args['question_focus']) <= 200
                     or not isinstance(facts, list) or len(facts) > 8
                     or any(not isinstance(f, str) or not f or f not in question for f in facts)
-                    or not isinstance(selections, list) or not 1 <= len(selections) <= 3):
-                return {'ok':False,'error':'invalid_question_review','hint':'user_facts只能逐字摘录当前用户原文，不改写人称或问句；不确定时直接填空数组[]。question_focus保留简短文字，selections须为1至3项。'}
+                    or not isinstance(selections, list) or not 1 <= len(selections) <= 4):
+                return {'ok':False,'error':'invalid_question_review','hint':'user_facts只能逐字摘录当前用户原文，不改写人称或问句；不确定时直接填空数组[]。question_focus保留简短文字，selections须为1至4项。'}
             chosen = []
             for item in selections:
                 if not isinstance(item, dict) or set(item) != {'person','concept_id','reason'}:
@@ -260,7 +260,7 @@ class AgentService:
                         matching_anchors.append(c['primary_anchor']['passage_id'])
             indexed = {p['id']:p for p in pool}
             existing = {p['id'] for p in hits}
-            for pid in list(dict.fromkeys(anchors + matching_anchors))[:3]:
+            for pid in list(dict.fromkeys(anchors + matching_anchors))[:4]:
                 if pid in indexed and pid not in existing:
                     hits.append(indexed[pid])
                     existing.add(pid)
@@ -385,7 +385,7 @@ class AgentService:
             system = {'role': 'system', 'content': SYSTEM + '\n当前状态：' + json.dumps(
                 {'available_people': sorted({r['person'] for r in self.rows.values()}),
                  'requested_people': list(state.requested_people),
-                 'selection_rule': '有requested_people时只允许其中人物，不添加对照人；否则选最相关的两至三人。',
+                 'selection_rule': '有requested_people时只允许其中人物，不添加对照人；否则选最相关的四人。',
                  'topic_messages': state.topic_messages, 'clarification_questions_asked': state.clarification_questions,
                  'clarification_answers_received': state.clarification_answers,
                  'questions_remaining': max(0, 2-state.clarification_questions),
@@ -399,7 +399,7 @@ class AgentService:
                         for c in self.thinker_profiles.get(entry['person'],{}).get('concepts',[])]
                 system['content'] += ('\n当前启用Skill优先路由：先根据以下精简观念检验问题、调用select_thinkers选择最适合的人，同时填写question_title：将当前疑惑精炼为6至14字的小标题，不写结论、不照抄整题。'
                     '再search_sources定位他的文章句子，最后结合真实文章与该人的完整Skill回答。不要先写通用建议再贴名言；'
-                    '默认优先选两至三位相关人物对照；同一人只一张。从全部可用人物中比较核心观念后选最相关的两至三人，不固定为最初三人，也不把全部人物都显示出来。重视视角互补与原文证据，不为人数凑人；生活挫折可比较苏轼，比较评价可比较庄子，伦理分寸可比较孔子，过度用力可比较老子；只是路由线索，不是固定关键词映射。现代企业人物优先用于项目、产品、协作和策略等有公开原文依据的处境，不凭知名度拿商业口号回答心理困扰；明确区分本人公开主张与已核实事实，不背书投资、融资或收益预测。当前requested_people非空时，只能选其中人物，不追加其他人，不要求用户必须说“只”；此规则优先于默认两三人。若关键信息不明仍可简短追问，最多两次。'
+                    '默认优先选四位相关人物对照；同一人只一张。从全部可用人物中比较核心观念后选最相关的四人，不固定为最初三人，也不把全部人物都显示出来。重视视角互补与原文证据，不为人数凑人；生活挫折可比较苏轼，比较评价可比较庄子，伦理分寸可比较孔子，过度用力可比较老子；只是路由线索，不是固定关键词映射。现代企业人物优先用于项目、产品、协作和策略等有公开原文依据的处境，不凭知名度拿商业口号回答心理困扰；明确区分本人公开主张与已核实事实，不背书投资、融资或收益预测。当前requested_people非空时，只能选其中人物，不追加其他人，不要求用户必须说“只”；此规则优先于默认四人。若关键信息不明仍可简短追问，最多两次。'
                     '忽略历史轮次的选人和Skill指令，以本轮工具返回为准。每人专属解释依据自己的Skill，不混用。'
                     '全部讲解使用自然简体中文，不夹杂英语单词或机械校验术语。\n'
                     + json.dumps(guide,ensure_ascii=False))
@@ -408,11 +408,11 @@ class AgentService:
                     '选项随本轮问题生成，名称尽量两字、必要时三至四字，例如核实、调整、远离；不写长句，不加先、对方、方式等冗词。不固定为改或远离；避免重叠做法与含糊的其他。仅纯知识或资料查询可不填选项，此时必须填写no_advice_reason；不能把个人经历倾诉误判为纯知识查询。'
                     '检索后每张cards额外返回advice_tendency数组[{"option":"已定选项","percent":60},...]和tendency_reason字符串，'
                     '依据当前事实、该人物Skill与已核验的原句，估计本次建议的相对侧重，不是概率、正确率、事实测量或历史本人意见。'
-                    '每位人物内部各选项的percent单独合计100（三张卡片各自100，不是三人合起来100）。percent只用JSON整数0、10、20、30、40、50、60、70、80、90、100，不用字符串或小数；不能为了人物对比而强造差异，不能套固定模板数值。理由一句说明为何这样侧重，须与正文立场一致。'
+                    '每位人物内部各选项的percent单独合计100（四张卡片各自100，不是四人合起来100）。percent只用JSON整数0、10、20、30、40、50、60、70、80、90、100，不用字符串或小数；不能为了人物对比而强造差异，不能套固定模板数值。理由一句说明为何这样侧重，须与正文立场一致。'
                     '信息不足以分配时advice_tendency:null，tendency_reason说明缺什么；必要时按原规则简短追问，不硬填数字。')
             if state.requested_people:
                 system['content'] += ('\n本轮已点名人物：'+ '、'.join(state.requested_people)
-                    +'。只检索并解释这些人物，cards最多'+str(min(3,len(state.requested_people)))+'张；同一人物只一张，不能用同人的其他段落重复凑卡片。')
+                    +'。只检索并解释这些人物，cards最多'+str(min(4,len(state.requested_people)))+'张；同一人物只一张，不能用同人的其他段落重复凑卡片。')
             while len(state.turns) > 12 or (state.turns and sum(len(json.dumps(t, ensure_ascii=False)) for t in state.turns) > 60000):
                 state.turns.pop(0)
             history = [m for turn in state.turns for m in turn]
@@ -475,7 +475,7 @@ class AgentService:
                         raise
                     format_repairs += 1
                     work.append(message)
-                    work.append({'role': 'user', 'content': '内部格式校验：刚才的回复不是完整JSON，尚未展示。不要调用工具，基于已查到的资料重新输出完整、简短的JSON对象，且仅含cards数组、synthesis字符串、evidence_scope字符串。每个人物最多一张卡片，最多三人，已选人物有相关依据就各展示一张；引用只用已返回的来源和句子编号；没有本轮相关资料就返回空cards并回答用户当前问题。'})
+                    work.append({'role': 'user', 'content': '内部格式校验：刚才的回复不是完整JSON，尚未展示。不要调用工具，基于已查到的资料重新输出完整、简短的JSON对象，且仅含cards数组、synthesis字符串、evidence_scope字符串。每个人物最多一张卡片，最多四人，已选人物有相关依据就各展示一张；引用只用已返回的来源和句子编号；没有本轮相关资料就返回空cards并回答用户当前问题。'})
                     continue
                 # A failed identifier may be mentioned in an error explanation,
                 # but is never accepted as the source of a displayed card.
@@ -532,13 +532,13 @@ class AgentService:
                             'invalid_tendency_item':'数组每项只有option和percent两个字段，不使用label、score、percentage或字典映射。',
                             'unknown_tendency_option':'option逐字复制advice_options，不改名字、不省略、不重复。',
                             'invalid_tendency_percent':'percent必须是JSON整数0、10、20、30、40、50、60、70、80、90或100，不用百分号字符串、0.6小数、15或25。',
-                            'invalid_tendency_total':'每位人物内部的全部选项各自合计100，不是三位人物加起来合计100。'
+                            'invalid_tendency_total':'每位人物内部的全部选项各自合计100，不是四位人物加起来合计100。'
                         }.get(getattr(exc,'tendency_code',None),'补全每张卡片的建议倾向字段。')
                         work.append({'role':'user','content':correction+' advice_options='+json.dumps(state.skill_route.get('advice_options'),ensure_ascii=False)+'。每张卡片填写advice_tendency和tendency_reason；不能判断时明确填null并说明，不省略字段。不是概率或正确率。'})
                     candidates = [{'passage_id': a, 'person': state.evidence[pid]['person'],
                         'sentences': [{'quote_id': q['id'], 'text': q['text']} for q in quote_candidates(state.evidence[pid]['text'])]}
                         for a, pid in reversed(list(state.aliases.items())) if pid in current_source_ids][:6]
-                    work.append({'role': 'user', 'content': '内部校验未通过，刚才的回复尚未展示。不要调用工具，重新输出完整JSON。cards必须为数组、每人最多1项，最多3项；每项有passage_id、quote_id、viewpoint_title、explanation，可另附emphasis数组；英文原句卡片必须另附translation中文译意。synthesis必须为字符串，只用1至2句、90字以内，evidence_scope为direct、partial或insufficient。只能从以下允许的来源和候选句中选，来源编号和句子编号分别使用，不添加重复项；explanation用30至60字、最多75字讲明白；只留一条判断或建议，不复述问题、不写套话、不堆同义句。用当前人物第一人称，明确回答原用户当前问题。没有适合的句子就返回空cards，别凑引用。允许来源：' + json.dumps(candidates, ensure_ascii=False)})
+                    work.append({'role': 'user', 'content': '内部校验未通过，刚才的回复尚未展示。不要调用工具，重新输出完整JSON。cards必须为数组、每人最多1项，最多4项；每项有passage_id、quote_id、viewpoint_title、explanation，可另附emphasis数组；英文原句卡片必须另附translation中文译意。synthesis必须为字符串，只用1至2句、90字以内，evidence_scope为direct、partial或insufficient。只能从以下允许的来源和候选句中选，来源编号和句子编号分别使用，不添加重复项；explanation用30至60字、最多75字讲明白；只留一条判断或建议，不复述问题、不写套话、不堆同义句。用当前人物第一人称，明确回答原用户当前问题。没有适合的句子就返回空cards，别凑引用。允许来源：' + json.dumps(candidates, ensure_ascii=False)})
                     continue
                 searched = any(e['tool'] == 'search_sources' and e['status'] == 'success' for e in trace)
                 card_action = any(e['tool'] in ('save_favorite', 'cancel_favorite', 'list_favorites') and e['status'] in ('success', 'needs_confirmation') for e in trace)

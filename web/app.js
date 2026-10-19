@@ -65,7 +65,9 @@ function render(result, question) {
   panel.append(title);
   if (result.clarification?.awaiting_answer || result.pending_confirmation) panel.append(node('p', result.display_reply || '', 'reply'));
   else if (!cards.length) panel.append(node('p', '未找到贴切原文。', 'empty-result'));
-  for (const card of cards) {
+  const grid=node('div',undefined,'cards-grid');
+  if(cards.length) panel.append(grid);
+  for (const card of cards.slice(0,4)) {
     const d = card.display; if (!d) continue;
     const article = node('details', undefined, 'card'); const summary = node('summary', undefined, 'card-summary'); const top = node('div', undefined, 'card-top');
     const person = node('span', d.person, 'person');
@@ -95,7 +97,7 @@ function render(result, question) {
     else paragraph.textContent = d.excerpt;
     if(d.is_translation){paragraph.title='所选英文原句的AI译意；展开可核对英文';paragraph.append(node('span','（译）','translation-note'));}
     summary.append(paragraph);
-    article.append(summary); attachDetails(article, {...card,reader_question:question}); panel.append(article);
+    article.append(summary); attachDetails(article, {...card,reader_question:question}); grid.append(article);
   }
   panel.hidden = false;
 }

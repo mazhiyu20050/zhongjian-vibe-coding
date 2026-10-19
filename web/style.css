@@ -32,3 +32,19 @@
 .card-insight{font-size:15px;line-height:1.85;font-weight:400;margin-top:7px}
 @media(max-width:480px){.viewpoint-title{font-size:15px}.card-insight{font-size:14px}}
 main{transition:margin-top .48s cubic-bezier(.22,1,.36,1)}main.has-answer{margin-top:clamp(48px,10vh,96px)}#results{margin-top:0;animation:none}#query-form{transform-origin:center center}main.has-answer #query-form{margin-top:22px}#question:disabled{opacity:1;-webkit-text-fill-color:currentColor}#thinking{min-height:60px;align-items:center}@media(prefers-reduced-motion:reduce){main{transition:none}}
+
+/* Four perspectives: quiet independent tiles, two columns on wide screens. */
+main.has-answer{width:min(1080px,calc(100% - 48px));margin-top:40px}
+#results{padding:0;border:0;border-radius:0;background:transparent}
+.question-title{padding:0 4px 22px;font-size:21px}
+.cards-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.cards-grid>.card{min-width:0;min-height:260px;padding:24px;background:#fff;border:1px solid #e5e7df;border-radius:18px;animation:rise .38s ease-out both}
+.cards-grid>.card+.card{border-top:1px solid #e5e7df}
+.cards-grid>.card:nth-child(2){animation-delay:.05s}.cards-grid>.card:nth-child(3){animation-delay:.10s}.cards-grid>.card:nth-child(4){animation-delay:.15s}
+.cards-grid .card-heading{gap:5px 10px}.cards-grid .advice-tendency{font-size:10px}
+.cards-grid .card-insight{margin-top:12px}.cards-grid .excerpt{margin-top:14px}
+main.has-answer #query-form{max-width:760px;margin:22px auto 0}
+@media(max-width:640px){main.has-answer{width:calc(100% - 28px);margin-top:28px}.cards-grid{grid-template-columns:1fr;gap:12px}.cards-grid>.card{min-height:0;padding:21px}.question-title{font-size:19px;padding-bottom:18px}}
+
+.cards-grid{align-items:stretch;grid-auto-rows:1fr}.cards-grid:has(>.card[open]){grid-auto-rows:auto;align-items:start}
+@media(max-width:640px){.cards-grid{grid-auto-rows:auto}}

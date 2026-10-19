@@ -60,6 +60,31 @@ class ExpandedPeopleTests(unittest.TestCase):
         self.assertEqual(named_people('用孔子和庄子的观点',self.skills),('孔子','庄子'))
         self.assertEqual(named_people('请问苏轼怎么看',{'王阳明'}),())
 
+    def test_four_selected_people_all_reach_the_result(self):
+        people=['孔子','老子','苏轼','鲁迅']
+        args={'question_focus':'如何面对不同意见','user_facts':[], 'advice_options':['行动','反思'],
+              'selections':[{'person':p,'concept_id':self.profiles[p]['concepts'][0]['id'],'reason':'依据此人的独立思想视角'} for p in people]}
+        calls=[]
+        def client(messages,**options):
+            calls.append(messages)
+            if len(calls)==1:return tool('select_thinkers',args)
+            if len(calls)==2:return tool('search_sources',{'terms':['行动','关系']})
+            data=json.loads([m for m in messages if m.get('role')=='tool'][-1]['content'])
+            cards=[]
+            for person in people:
+                hit=next(p for p in data['sources'] if p['person']==person and p['sentences'])
+                cards.append({'passage_id':hit['id'],'quote_id':hit['sentences'][0]['id'],
+                              'viewpoint_title':'辨明事实再行动','explanation':'你先分清具体事实与感受，再选择一件真正可以改进的事。',
+                              'advice_tendency':[{'option':'行动','percent':60},{'option':'反思','percent':40}],
+                              'tendency_reason':'依据具体事实安排反思与行动。'})
+            return final(cards)
+        with tempfile.TemporaryDirectory() as tmp:
+            service=AgentService(self.rows,CollectionStore(Path(tmp)/'db.sqlite3'),client,skill_routing=True,advice_tendencies=True)
+            answer=service.ask('请用孔子、老子、苏轼、鲁迅的视角，直接给我应对不同意见的建议。')['result']
+        self.assertEqual([c['person'] for c in answer['cards']],people)
+        self.assertEqual(len(answer['skill_route']['selections']),4)
+        self.assertTrue(all(c['tendency_applicable'] for c in answer['cards']))
+
     def test_modern_quotations_are_short_and_not_full_article_copies(self):
         totals={}
         for row in self.rows:
