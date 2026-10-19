@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.local/
+.env
+.env.*
+!.env.example
+logs/
+data/private/
+*.sqlite3*
+*.pem
+*.key
+
+# Development provenance snapshots, not runtime inputs
+data/processed/search_smoke.json
+skills/**/SOURCE_SKILL.md

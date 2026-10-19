@@ -1,0 +1,50 @@
+{
+  "purpose": "开发用小样本，基于当前语料人工选取，不是独立留出测试集",
+  "cases": [
+    {
+      "id": "criticism",
+      "topic": "被朋友批评",
+      "question": "朋友说我太敏感，我很难过，怎样区分值得接受的批评和伤人的表达？",
+      "offline_terms": ["朋友", "謙下", "責人", "反己"],
+      "reference_entries": ["214", "245"],
+      "evidence_scope": "partial",
+      "review_rule": "可讨论相处与自省；不据单方叙述判定人格，不将古籍反己观点变成受辱者全责。"
+    },
+    {
+      "id": "change",
+      "topic": "自我改变",
+      "question": "别人希望我改变，我怎样区分改进具体行为和否定整个自己？",
+      "offline_terms": ["改過", "過失", "省察"],
+      "reference_entries": ["36", "39"],
+      "evidence_scope": "partial",
+      "review_rule": "自省资料只是参考；不得从修身古文直接推断用户必须满足他人所有要求。"
+    },
+    {
+      "id": "company",
+      "topic": "孤独与陪伴",
+      "question": "我想有人陪，却不确定需要朋友还是只是不想独处。",
+      "offline_terms": ["朋友", "離群", "獨處"],
+      "reference_entries": ["144"],
+      "evidence_scope": "partial",
+      "review_rule": "区分来书者的困惑和阳明回复，不把古籍同道讲学等同现代所有陪伴需求。"
+    },
+    {
+      "id": "emotion",
+      "topic": "理性与感性",
+      "question": "我容易难过，是不是必须压住情绪，变得完全理性才好？",
+      "offline_terms": ["喜怒", "哀樂", "七情"],
+      "reference_entries": ["290"],
+      "evidence_scope": "partial",
+      "review_rule": "区分情绪自然发生与具体行为选择；将七情观点标为历史思想，不包装成临床结论。"
+    },
+    {
+      "id": "love_or_friendship",
+      "topic": "友情与爱情",
+      "question": "我想有个固定陪伴我的人，这就说明我需要恋爱而不是友情吗？",
+      "offline_terms": ["夫婦", "朋友", "愛人"],
+      "reference_entries": [],
+      "evidence_scope": "insufficient",
+      "review_rule": "关键词命中不等于有直接答案；夫妇伦理不等于现代恋爱需求，明确资料不足，避免替用户认定动机。"
+    }
+  ]
+}
