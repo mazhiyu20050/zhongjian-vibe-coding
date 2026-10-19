@@ -31,7 +31,7 @@ class PersonSkillTests(unittest.TestCase):
 
     def test_installed_skills_and_catalog_are_separate(self):
         skills = load_skills()
-        self.assertEqual(set(skills), {'王阳明','毛泽东','弗洛伊德'})
+        self.assertTrue({'王阳明','毛泽东','弗洛伊德'} <= set(skills))
         self.assertNotIn('instructions',catalog(skills,{'王阳明'})[0])
         self.assertIn('专属解答方法',skills['王阳明']['instructions'])
 

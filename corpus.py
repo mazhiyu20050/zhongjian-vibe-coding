@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 from urllib.parse import quote
+from person_registry import EXPANSION
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = ROOT / 'data' / 'processed'
@@ -13,7 +14,8 @@ OUTPUT = ROOT / 'data' / 'processed'
 def load_library():
     """Explicit corpus allowlist: persona skills never become quote sources."""
     rows = []
-    for filename in ('wang_yangming.jsonl', 'mao.jsonl', 'freud.jsonl'):
+    for filename in ('wang_yangming.jsonl', 'mao.jsonl', 'freud.jsonl',
+                     *(f'additions_{slug}.jsonl' for slug in EXPANSION)):
         path = OUTPUT / filename
         if path.exists():
             rows.extend(json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip())

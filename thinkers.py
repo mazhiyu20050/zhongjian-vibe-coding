@@ -1,5 +1,8 @@
 """Interpretive frameworks with literal primary-text anchors, not historical impersonation."""
 from presentation import simplified
+from pathlib import Path
+import json
+from person_registry import EXPANSION
 
 SPECS = {
  '王阳明': [
@@ -28,6 +31,15 @@ SPECS = {
   ('freud-reality','快乐与现实原则',['reality-principle'],'超越快乐原则','承认愿望，同时考虑现实条件、延迟满足与代价；不把欲望等同命令，也不把克制等同否认一切需要。',['冲动','欲望','满足','取舍','克制'],['freud-conflict','freud-love']),
   ('freud-love','亲密需要与失去的脆弱',['never so defenceless'],'文明及其不满','看见亲密关系带来的满足与失去时的脆弱，不因此主张断绝关系，也不把渴望陪伴或失恋当疾病。',['爱情','恋爱','陪伴','害怕失去','依恋'],['freud-repetition','freud-reality'])
  ]}
+
+# Additions are explicit, reviewed project data, never arbitrary directory imports.
+for _slug, (_person, _) in EXPANSION.items():
+    _path = Path(__file__).resolve().parent / 'data' / 'processed' / f'thoughts_{_slug}.json'
+    if _path.exists():
+        _specs = json.loads(_path.read_text(encoding='utf-8'))
+        if not isinstance(_specs, list) or any(not isinstance(s,list) or len(s)!=7 for s in _specs):
+            raise ValueError('invalid_thought_specs')
+        SPECS[_person] = _specs
 
 def build_profiles(passages):
     """Only expose a concept if its stated anchor exists in this local corpus."""

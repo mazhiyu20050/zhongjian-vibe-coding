@@ -13,6 +13,7 @@ from query import (make_passages, retrieve, validate_terms, quote_candidates, or
                    parse_content, finalize_answer, checked, QueryStageError, search_normalized)
 from thinkers import build_profiles
 from person_skills import load_skills, catalog, identity
+from person_registry import named_people as detect_named_people
 from presentation import concise_commentary
 from advice_tendencies import validate_options, validate_tendency
 
@@ -24,13 +25,13 @@ def definition(name, description, properties):
 
 
 TOOLS = [
-    definition('select_thinkers', '先检验当前问题含义，再根据人物Skill的精简观念优先选择两至三位能提供不同切入点的人；三人都相关时都选，不把一人的结论冒充全部观点。user_facts只摘录当前话题中用户确实说过的连续片段，reason说明观念为何适配，不给人物打正确率。',
+    definition('select_thinkers', '先检验当前问题含义，再根据人物Skill的精简观念优先选择两至三位能提供不同切入点的人；三人都相关时都选，不把一人的结论冒充全部观点。user_facts只逐字摘录当前话题中用户确实说过的连续片段，不把问句改成自述、不改写人称；不确定时填空数组[]，reason说明观念为何适配，不给人物打正确率。',
         {'question_focus': {'type':'string'},
          'user_facts': {'type':'array','items':{'type':'string'}},
          'selections': {'type':'array','minItems':1,'maxItems':3,'items':{
              'type':'object','properties':{'person':{'type':'string'},'concept_id':{'type':'string'},'reason':{'type':'string'}},
              'required':['person','concept_id','reason'],'additionalProperties':False}}}),
-    definition('search_sources', '根据当前困惑检索本地王阳明、毛泽东和弗洛伊德原著。terms应为2至8字的关键词，繁简均可，如反己、朋友、调查、实践、矛盾、批评；避免单字。',
+    definition('search_sources', '根据当前困惑检索本地人物原著；只检索本轮已选择的作者，不受旧三人名单限制。terms应为2至8字的关键词，繁简均可，如反己、朋友、调查、实践、矛盾、批评；避免单字。',
                {'terms': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'uniqueItems': True,
                           'items': {'type': 'string', 'minLength': 2, 'maxLength': 20}}}),
     definition('get_context', '读取已检索原文的上下文，source_id使用P1等来源编号。',
@@ -71,8 +72,8 @@ SYSTEM = '''每张cards必须增加viewpoint_title字段：用4至10字为这位
 用户确认后必须再次调用同一个修改工具，收到成功结果后才说已完成；仅口头说完成不算操作。
 当前展示卡片顺序及待确认状态会附在本系统消息中；收藏第1条指当前展示卡片，不是检索候选第1条。
 最终只输出JSON：{"cards":[{"passage_id":"P1","quote_id":"Q1","viewpoint_title":"这位人物的观点短标题","explanation":"直接讲清楚的观点","emphasis":["观点中的关键短语"],"translation":"仅英文原句时填写忠实中文译意"}],"synthesis":"你可以……","evidence_scope":"partial"}。
-最多三张卡片，每个人物只选最贴合问题的一张；优先呈现两至三个不同且相关的视角。三人都能提供具体帮助就各一张，不只留最高匹配的人。已选人物检索到相关原句时都应展示，解释各自切入点，不写三份相同建议；确无相关原文不硬凑。用户点名人物时只选该人，找不到就说明。选择提供的原文句子编号，别抄写或改写引用。非检索类操作或追问可返回空cards。
-本地库包含王阳明《传习录》《大学问》、毛泽东《毛泽东选集》一至四卷和《毛泽东文集》一至八卷，以及弗洛伊德《自我与本我》《超越快乐原则》《文明及其不满》的历史英译本。用来源person核对作者，思想框架标签只是检索导引而非原文。不要把政治军事中的敌我、斗争、消灭直接套到日常朋友关系中。
+最多三张卡片，每个人物只选最贴合问题的一张，每个passage_id也只出现一次；同一人的多个引句不要拆成多张卡片；优先呈现两至三个不同且相关的视角。三人都能提供具体帮助就各一张，不只留最高匹配的人。已选人物检索到相关原句时都应展示，解释各自切入点，不写三份相同建议；确无相关原文不硬凑。用户点名人物时只选该人，找不到就说明。选择提供的原文句子编号，别抄写或改写引用。非检索类操作或追问可返回空cards。
+本地库包含王阳明《传习录》《大学问》、毛泽东《毛泽东选集》一至四卷和《毛泽东文集》一至八卷，以及弗洛伊德《自我与本我》《超越快乐原则》《文明及其不满》的历史英译本；新增人物及作品以当前Skill目录和工具返回为准。用来源person核对作者，思想框架标签只是检索导引而非原文。不要把政治军事中的敌我、斗争、消灭直接套到日常朋友关系中。
 所有AI解释、建议和回应都面向“你”，像认真陪你梳理问题的伙伴，温和具体地说明核心思想如何回应你，不机械套“你先做什么、再观察什么”，用第一人称对你讲话，不用“阳明认为”“他提醒”等第三者讲述；不假称真实历史本人，不捏造个人经历。原文引用保持原样；别承诺照做就一定改变别人或消除情绪。
 explanation用人物第一人称直接对“你”讲话，是直接回应用户本轮具体困惑的一句话，建议30至60字、最多75字：把所选原句的意思落到用户的问题上，点明关键区别或具体方向，不泛泛介绍思想，不重复原文，不加标题或来源编号，不评价双方人格；不确定的动机不作断言。synthesis只写1至2句，建议40至70字、最多90字，同样用“你”的口吻；详细解释放在点开原文后的讲述中。原文可能含学生提问或来信，区分它与老师观点。
 正常难过和陪伴需求不等于私欲或修养不足。古籍对现代处境只提供参考，明确相关性与适用边界。
@@ -209,7 +210,7 @@ class AgentService:
                 try:
                     args['advice_options']=validate_options(args['advice_options'])
                 except ValueError:
-                    return {'ok':False,'error':'invalid_advice_options'}
+                    return {'ok':False,'error':'invalid_advice_options','hint':'advice_options须为2至3个不同的1至4字短词，例如实践、补课、协作；不要写五字以上的句子。'}
             if 'question_title' in args and (not isinstance(args['question_title'],str) or not 1 <= len(args['question_title'].strip()) <= 24):
                 return {'ok':False,'error':'invalid_question_title'}
             selections, facts = args['selections'], args['user_facts']
@@ -218,7 +219,7 @@ class AgentService:
                     or not isinstance(facts, list) or len(facts) > 8
                     or any(not isinstance(f, str) or not f or f not in question for f in facts)
                     or not isinstance(selections, list) or not 1 <= len(selections) <= 3):
-                return {'ok':False,'error':'invalid_question_review'}
+                return {'ok':False,'error':'invalid_question_review','hint':'user_facts只能逐字摘录当前用户原文，不改写人称或问句；不确定时直接填空数组[]。question_focus保留简短文字，selections须为1至3项。'}
             chosen = []
             for item in selections:
                 if not isinstance(item, dict) or set(item) != {'person','concept_id','reason'}:
@@ -228,7 +229,7 @@ class AgentService:
                         or person not in {r['person'] for r in self.rows.values()}
                         or (state.requested_people and person not in state.requested_people)
                         or person in chosen):
-                    return {'ok':False,'error':'unknown_or_excluded_person'}
+                    return {'ok':False,'error':'unknown_or_excluded_person','allowed_people':list(state.requested_people or self.person_skills),'hint':'只选allowed_people中的人物；用户点名时不追加其他人。'}
                 concepts = self.thinker_profiles.get(person, {}).get('concepts', [])
                 if (not isinstance(item['reason'],str) or not 1 <= len(item['reason']) <= 300
                         or item['concept_id'] not in {c['id'] for c in concepts}):
@@ -371,9 +372,7 @@ class AgentService:
                 state.clarification_answers = min(2, state.clarification_answers + 1)
                 state.awaiting_clarification = False
             state.topic_messages = (state.topic_messages + [question.strip()])[-12:]
-            named_people = tuple(person for person, names in
-                (('王阳明', ('王阳明', '阳明', '王文成')), ('毛泽东', ('毛泽东', '毛主席', '毛选')), ('弗洛伊德', ('弗洛伊德', '佛洛伊德', 'Freud', 'freud')))
-                if any(name in question for name in names))
+            named_people = detect_named_people(question, self.person_skills)
             state.requested_people = named_people or (state.requested_people if answering else ())
             route_required = self.skill_routing and not explicit_readback and not re.search(r'收藏|^确认|^取消', question)
             if route_required:
@@ -385,6 +384,8 @@ class AgentService:
                         'quote': c['quote']} for i, c in enumerate(state.last_cards, 1)]
             system = {'role': 'system', 'content': SYSTEM + '\n当前状态：' + json.dumps(
                 {'available_people': sorted({r['person'] for r in self.rows.values()}),
+                 'requested_people': list(state.requested_people),
+                 'selection_rule': '有requested_people时只允许其中人物，不添加对照人；否则选最相关的两至三人。',
                  'topic_messages': state.topic_messages, 'clarification_questions_asked': state.clarification_questions,
                  'clarification_answers_received': state.clarification_answers,
                  'questions_remaining': max(0, 2-state.clarification_questions),
@@ -392,13 +393,13 @@ class AgentService:
                  'displayed_cards': display, 'confirmed_action': confirmed}, ensure_ascii=False)}
             if self.skill_routing:
                 available = {r['person'] for r in self.rows.values()}
-                guide = catalog(self.person_skills, available)
+                guide = catalog(self.person_skills, set(state.requested_people) if state.requested_people else available)
                 for entry in guide:
                     entry['concepts'] = [{k:c[k] for k in ('id','name','interpretation')}
                         for c in self.thinker_profiles.get(entry['person'],{}).get('concepts',[])]
                 system['content'] += ('\n当前启用Skill优先路由：先根据以下精简观念检验问题、调用select_thinkers选择最适合的人，同时填写question_title：将当前疑惑精炼为6至14字的小标题，不写结论、不照抄整题。'
                     '再search_sources定位他的文章句子，最后结合真实文章与该人的完整Skill回答。不要先写通用建议再贴名言；'
-                    '默认优先选两至三位相关人物对照；同一人只一张。朋友批评、敏感、关系选择等问题可分别从事实与改进、内在判断、情绪与自我苛责三个角度选人，不要仅因最高匹配而丢掉其他相关视角。用户明确只点名一人时才限定该人。若关键信息不明仍可简短追问，最多两次。'
+                    '默认优先选两至三位相关人物对照；同一人只一张。从全部可用人物中比较核心观念后选最相关的两至三人，不固定为最初三人，也不把全部人物都显示出来。重视视角互补与原文证据，不为人数凑人；生活挫折可比较苏轼，比较评价可比较庄子，伦理分寸可比较孔子，过度用力可比较老子；只是路由线索，不是固定关键词映射。现代企业人物优先用于项目、产品、协作和策略等有公开原文依据的处境，不凭知名度拿商业口号回答心理困扰；明确区分本人公开主张与已核实事实，不背书投资、融资或收益预测。当前requested_people非空时，只能选其中人物，不追加其他人，不要求用户必须说“只”；此规则优先于默认两三人。若关键信息不明仍可简短追问，最多两次。'
                     '忽略历史轮次的选人和Skill指令，以本轮工具返回为准。每人专属解释依据自己的Skill，不混用。'
                     '全部讲解使用自然简体中文，不夹杂英语单词或机械校验术语。\n'
                     + json.dumps(guide,ensure_ascii=False))
@@ -409,6 +410,9 @@ class AgentService:
                     '依据当前事实、该人物Skill与已核验的原句，估计本次建议的相对侧重，不是概率、正确率、事实测量或历史本人意见。'
                     '每位人物内部各选项的percent单独合计100（三张卡片各自100，不是三人合起来100）。percent只用JSON整数0、10、20、30、40、50、60、70、80、90、100，不用字符串或小数；不能为了人物对比而强造差异，不能套固定模板数值。理由一句说明为何这样侧重，须与正文立场一致。'
                     '信息不足以分配时advice_tendency:null，tendency_reason说明缺什么；必要时按原规则简短追问，不硬填数字。')
+            if state.requested_people:
+                system['content'] += ('\n本轮已点名人物：'+ '、'.join(state.requested_people)
+                    +'。只检索并解释这些人物，cards最多'+str(min(3,len(state.requested_people)))+'张；同一人物只一张，不能用同人的其他段落重复凑卡片。')
             while len(state.turns) > 12 or (state.turns and sum(len(json.dumps(t, ensure_ascii=False)) for t in state.turns) > 60000):
                 state.turns.pop(0)
             history = [m for turn in state.turns for m in turn]
