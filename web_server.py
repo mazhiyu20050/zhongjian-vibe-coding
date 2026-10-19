@@ -93,7 +93,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (ROOT / 'web' / filename).read_bytes(), mime)
         if parsed.path == '/api/session':
             return self.send(200, {'token': self.server.nonce, 'ready': self.server.engine is not None,
-                                  'person': '、'.join(sorted({r['person'] for r in self.server.rows})), 'records': len(self.server.rows)})
+                                  'person': '、'.join(sorted({r['person'] for r in self.server.rows})), 'records': len(self.server.rows),
+                                  'app':'zhongjian','model':getattr(self.server,'model_name',None)})
         if parsed.path == '/api/collections':
             if not self.authorized():
                 return
@@ -256,6 +257,7 @@ def main():
         client = make_model_client(key, os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash')
         engine = lambda question: query(question, rows, client)
     server = LocalServer(('127.0.0.1', args.port), rows, engine, ROOT / '.local' / 'collections.sqlite3')
+    server.model_name = (os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash') if key else None
     if key:
         server.detail_client = client
     if key:

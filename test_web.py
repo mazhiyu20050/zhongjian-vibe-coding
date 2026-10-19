@@ -92,7 +92,7 @@ class WebTests(unittest.TestCase):
     def test_session_contains_no_provider_key(self):
         with self.request('/api/session') as r:
             data = json.load(r)
-        self.assertEqual(set(data), {'token', 'ready', 'person', 'records'})
+        self.assertEqual(set(data), {'token', 'ready', 'person', 'records', 'app', 'model'})
         self.assertTrue(data['ready'])
 
     def test_secret_file_not_served(self):

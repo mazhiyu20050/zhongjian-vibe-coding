@@ -17,3 +17,6 @@
 增加工具阶段后仍可修复JSON、截断响应有界再生成、重复接口JSON错误会停止的回归。独立无密钥的 `browser_failure_fixture.py` 首次模拟成功、随后模拟JSON错误；浏览器验证草稿不变、无横向隐藏、输入高度覆盖全文、发送按钮恢复可用且旧卡片仍在。该模拟验证仅针对界面容错，不冒充真实AI成功；结果见 reports/textarea-ui-regression.json。
 
 本次最终完整回归168项通过。真实接口另使用合成长问题验证四人结果正常返回；实际输入框的scrollWidth等于clientWidth、scrollHeight等于clientHeight，证明无横向隐藏且高度覆盖文字，见 reports/textarea-live-check.json 与 reports/textarea-wrapping.jpg。
+
+## 交互终端
+覆盖自然语言对话、编号详解与相关文章、缓存、返回、新话题、失败保留与重试、会话ID传递、仅本机连接、隐藏启动及模型不匹配检查。真实后台用合成问题跑通问答→详解→返回→新问题→退出，见 reports/terminal-live-smoke.txt。另在独立端口实测隐藏自动启动及退出后清理测试后台，未发送模型请求，见 reports/terminal-autostart.txt。
