@@ -1,8 +1,48 @@
 # 众见 · Zhongjian
 
-人物 Skill 路由 + 本地 RAG 的观点查询 Agent。输入困惑，从十二位人物的本地原著或已核验公开短引中检索，生成不同视角的解答并校验引用。
+人物 Skill 路由 + 本地 RAG 的观点查询 Agent。输入困惑，从二十位人物的本地原著或已核验公开短引中检索，生成不同视角的解答并校验引用。
 
-## 启动（Python 3.11+）
+## 评审快速复现（无需密钥）
+
+准备 Python 3.11 或 3.12 和浏览器。安装依赖需要网络；启动后的演示只使用本地数据。
+
+Windows PowerShell：
+
+```powershell
+py -3 -m venv .review-venv
+.\.review-venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.review-venv\Scripts\python.exe reviewer_demo.py
+```
+
+macOS / Linux（命令供复现，当前交付未做实机验证）：
+
+```sh
+python3 -m venv .review-venv
+.review-venv/bin/python -m pip install -r requirements.txt
+.review-venv/bin/python reviewer_demo.py
+```
+
+1. 打开终端打印的本机网址，发送预填的问题「小组作业里队友拖延，我要不要直接接手？」。
+2. 对比三张人物卡片，展开核对原文，再看卡片下方「可先试一步」。
+3. 打开侧栏，验证本次对话已加入演示历史。按 Ctrl+C 停止，临时数据随之清理。端口冲突时加 `--port 0`。
+
+页面明示「离线评审演示」：演示评论和行动建议为固定样例，引用来自本地语料；既不进行实时模型生成，也不使用本机正式会话或密钥。任意问题的真实模型体验见下方「启动网页版」。`.env.example` 仅列配置项，不会被自动加载。
+
+快速验收：用同一虚拟环境的 Python 执行 `python -m unittest test_reviewer_demo test_history_actions test_project_menu -v` 和 `python verify_corpus.py`。安装 Node.js 后可另跑 `node --test test_chat_timeline.cjs test_agent_wheel.cjs`。评审入口与源码对应 Git 提交，免密钥演示通过不代表在线服务已验证。
+
+## Windows 轻量桌面版
+
+推荐下载 `Zhongjian-Setup-0.3.0-x64.exe`，这是唯一需要下载的文件：按中文向导安装，支持桌面快捷方式与 Windows 卸载入口，卸载保留个人数据。说明见 [安装与下载](docs/INSTALLER.md)。`build_installer.ps1` 可从已有桌面构建生成安装包和本地下载页。
+
+完整解压桌面发布包后，双击 `众见.exe`。首次在设置中填写官方 DeepSeek 密钥与模型名称；无需安装 Python，也无需手动启动服务。界面保留四宫格与展开阅读。
+
+- pywebview + Windows Edge WebView2 原生窗口，Python 与资料库随包分发。
+- 独立动态本机端口，关闭窗口停止自己的后台；不占用原网页版的 8765 端口。
+- 配置和收藏存于 `%LOCALAPPDATA%\Zhongjian`，密钥使用 Windows DPAPI 加密。
+- 当前为未签名便携版；仍需联网调用 DeepSeek。首次启动需已安装 WebView2 Runtime。
+- 从源码打包：`powershell -ExecutionPolicy Bypass -File .\build_desktop.ps1`。输出位于 `dist`；说明见 [桌面使用说明](docs/DESKTOP_QUICKSTART.txt)。
+
+## 启动网页版（Python 3.11+）
 
 在仓库根目录运行：
 
@@ -63,7 +103,7 @@ python query.py --offline-demo
 
 ## 隐私与边界
 
-本次提交排除 API 密钥、Windows 加密密钥文件、收藏数据库、运行时日志以及私人聊天截图。运行时问题和候选资料会发送到配置的 DeepSeek 服务；对话默认只保留在进程内存，收藏由用户确认后写入本机 SQLite。原文匹配校验不能证明解读一定正确；语料未完成逐段校勘。当前不支持向量语义召回，历史对话话题切分仍可能影响相关性，模型的排序、语气和建议需持续评估。
+本次提交排除 API 密钥、Windows 加密密钥文件、收藏数据库、运行时日志以及私人聊天截图。运行时问题和候选资料会发送到配置的 DeepSeek 服务；模型会话状态在进程内存；网页与桌面历史问题、回答及用户确认的收藏保存在本机 SQLite，无云端同步。原文匹配校验不能证明解读一定正确；语料未完成逐段校勘。当前不支持向量语义召回，历史对话话题切分仍可能影响相关性，模型的排序、语气和建议需持续评估。
 
 ## 2026-10-19：扩展为十二位人物
 
@@ -94,8 +134,17 @@ Windows 在仓库根目录运行 ` .\众见.cmd `，或双击此文件。进入�
 - `新问题`：清空当前终端会话，另起话题；`重试`：重发失败的问题；`退出`：结束终端对话。
 - 收藏与确认可像网页聊天一样输入，例如“收藏第1条”，再按后台提示明确确认。终端不绕过写入确认。
 
-与网页共用本机后台、人物库、检索、解读及收藏，但终端与网页的对话会话独立。后台未运行时会隐藏启动；从当前用户的加密配置或环境变量读取密钥，未配置时隐藏询问，不保存明文。退出终端后后台仍能供网页使用。不把聊天、密钥或详解自动写入文件。
+与网页共用本机后台、人物库、检索、解读及收藏，但终端与网页的对话会话独立。后台未运行时会隐藏启动；从当前用户的加密配置或环境变量读取密钥，未配置时隐藏询问，不保存明文。退出终端后后台仍能供网页使用。密钥不写入诊断日志。网页/桌面现按用户要求在本机 SQLite 保存历史问题和回答，终端共用查询接口也会保留查询历史；不做云端同步。
 
 可选模型：`powershell -ExecutionPolicy Bypass -File .\terminal_chat.ps1 -Model deepseek-flash`。已有后台时不静默切换模型；要换模型，先关闭旧后台。跨平台可在装好依赖并配置环境变量后运行 `python terminal_chat.py`。
 
 `python terminal_chat.py --no-start` 只连接现有后台；不启动新进程。API请求可能产生费用，展开详解也会请求模型，同一问题下重复查看已缓存详解不会额外生成。
+
+
+## 新导航、历史与后台下载
+首次输入居中；左上侧栏包含人物偏好、设置和本机历史，右上加号新建对话。人物联网查找在后台自动核验并下载，关闭弹窗也继续；同名人物先确认，下载后待资料校验再启用。详见 [说明](docs/NAVIGATION_AND_DISCOVERY.md)。
+
+
+## 2026-10-24：0.3.0 发布准备
+
+包含专属人物模式、顶部轮盘、历史与项目管理、置顶、归档恢复和本地目录关联。补齐桌面 Tk 资源与运行时 SSL 证书策略文件。长文入口仍为2000字符，下载 Skill 仍需审核。官网承担安装包分发，不代表已上线完整 Python 查询服务。详见 docs/PROJECT_ASSESSMENT_REPORT.md 和 reports/release-0.3.0-verified-tests.txt。
