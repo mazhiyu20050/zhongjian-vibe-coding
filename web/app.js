@@ -101,7 +101,8 @@ function render(result, question, panel) {
   const cards = result.cards || [];
   const title = node('h2', undefined, 'question-title');
   title.append(node('mark', result.question_title || question.slice(0,18)));
-  if (result.clarification?.awaiting_answer || result.pending_confirmation) panel.append(node('p', result.display_reply || '', 'reply'));
+  const awaitingInput = result.clarification?.awaiting_answer || result.pending_confirmation;
+  if (awaitingInput) panel.append(node('p', result.display_reply || '', 'reply'));
   else if (!cards.length) panel.append(node('p', '未找到贴切原文。', 'empty-result'));
   const grid=node('div',undefined,'cards-grid');
   if(cards.length) panel.append(grid);
@@ -135,10 +136,21 @@ function render(result, question, panel) {
     else paragraph.textContent = d.excerpt;
     if(d.is_translation){paragraph.title='所选英文原句的AI译意；展开可核对英文';paragraph.append(node('span','（译）','translation-note'));}
     summary.append(paragraph);
+    const entry = Number.isInteger(d.entry) && d.entry > 0 ? '第'+d.entry+'条' : '';
+    const source = [d.work ? '《'+d.work+'》' : '', d.volume, d.section, entry].filter(Boolean).join(' · ');
+    if (source) summary.append(node('p', '出处：'+source, 'card-reference'));
     article.append(summary);
     attachViewpointMenu(article,summary,d.person);attachDetails(article, {...card,reader_question:question}); grid.append(article);
   }
-  if(cards.length) panel.append(title);
+  if(cards.length) {
+    panel.append(title);
+    const suggestion = typeof result.display_reply === 'string' ? result.display_reply.trim() : '';
+    if (!awaitingInput && suggestion) {
+      const step = node('section', undefined, 'answer-next-step');
+      step.append(node('h3', '可先试一步'), node('p', suggestion));
+      panel.append(step);
+    }
+  }
   panel.hidden = false;
 }
 function makeTurn(question){

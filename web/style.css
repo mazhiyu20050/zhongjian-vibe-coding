@@ -71,3 +71,8 @@ main.has-started #question{max-height:min(160px,25vh);overflow:auto}
 .viewpoint-context-menu button:hover:enabled,.viewpoint-context-menu button:focus-visible{background:#edf1e7}
 
 .turn-answer .question-title{margin:16px 0 0;padding:0 4px;text-align:center}
+
+.card-reference{margin:10px 0 0;font-size:12px;line-height:1.55;color:#55614a;overflow-wrap:anywhere}
+.answer-next-step{margin:12px auto 0;padding:14px 18px;max-width:580px;background:#eff2e8;border:1px solid #e1e7d8;border-radius:13px;color:#30392c}
+.answer-next-step h3{margin:0 0 4px;font-size:13px;font-weight:700;color:#435037}
+.answer-next-step p{margin:0;font-size:14px;line-height:1.65;overflow-wrap:anywhere}

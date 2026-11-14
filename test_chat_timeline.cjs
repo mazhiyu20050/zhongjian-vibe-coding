@@ -70,3 +70,26 @@ test('space in an empty question is left to normal typing',()=>{
   q.handlers.keydown({key:' ',preventDefault(){prevented=true}});
   assert.equal(prevented,false);
 });
+
+test('source attribution and the existing recommended next step appear in the answer',()=>{
+  const f=setup();
+  vm.runInContext("render({question_title:'团队合作受阻',display_reply:'先约一次十分钟的分工对齐。',cards:[{display:{person:'孔子',excerpt:'原文',work:'论语',volume:'卷一',section:'学而',entry:1}},{display:{person:'庄子',excerpt:'原文'}}]},'提问',$('results'))",f.ctx);
+  const [grid,title,step]=f.$('results').children;
+  const source=grid.children[0].children[0].children.find(el=>el.className==='card-reference');
+  assert.equal(source.textContent,'出处：《论语》 · 卷一 · 学而 · 第1条');
+  assert.ok(!grid.children[1].children[0].children.some(el=>el.className==='card-reference'));
+  assert.equal(title.children[0].textContent,'团队合作受阻');
+  assert.equal(title.children.length,1);
+  assert.equal(step.className,'answer-next-step');
+  assert.equal(step.children[1].textContent,'先约一次十分钟的分工对齐。');
+});
+
+test('clarification and confirmation replies are not repeated as next steps',()=>{
+  const f=setup();
+  for(const flag of ["clarification:{awaiting_answer:true}","pending_confirmation:true"]){
+    vm.runInContext("render({"+flag+",display_reply:'请确认。',cards:[{display:{person:'孔子',excerpt:'原文'}}]},'提问',$('results'))",f.ctx);
+    const parts=f.$('results').children;
+    assert.equal(parts.filter(el=>el.className==='reply').length,1);
+    assert.ok(!parts.some(el=>el.className==='answer-next-step'));
+  }
+});
