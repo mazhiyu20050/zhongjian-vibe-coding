@@ -16,6 +16,7 @@ from person_skills import load_skills, catalog, identity
 from person_registry import named_people as detect_named_people
 from presentation import concise_commentary
 from advice_tendencies import validate_options, validate_tendency
+from recommendations import LABELS
 
 
 def definition(name, description, properties):
@@ -52,6 +53,8 @@ TOOLS[0]['function']['parameters']['properties']['advice_options'] = {
 
 TOOLS[0]['function']['parameters']['properties']['no_advice_reason'] = {
     'type':'string', 'description':'仅纯知识或资料查询、不涉及个人困惑和行动建议时填写省略占比的原因；个人求助即使没有问号，也须提供advice_options。'}
+TOOLS[0]['function']['parameters']['properties']['recommendation_exception'] = {
+    'type':'string', 'description':'仅当分组人物的原著确实不贴合当前问题时，说明偏离推荐名额的具体理由；不为凑比例硬套原文。'}
 
 SYSTEM = '''每张cards必须增加viewpoint_title字段：用4至10字为这位人物的具体观点提炼小标题，不是重复用户问题，不用“观点”“建议”等空标题；不同人物标题体现各自切入点。
 文案以精确易懂为先，简短不等于省略必要背景。卡片不能突然提徐爱、顾东桥等陌生人物或说“这段徐爱……”，优先直接讲道理；确实需要例子就放到展开讲解，交代人物、事情和与问题的关系。可在每张卡片中增加emphasis数组，从explanation逐字选出1至2处、每处2至16字的关键判断，勿整段标亮，勿写Markdown星号。
@@ -100,6 +103,8 @@ class Session:
     topic_messages: list = field(default_factory=list)
     advice_delivered: bool = False
     skill_route: dict = field(default_factory=dict)
+    recommendation_plan: dict = field(default_factory=dict)
+    agent_person: str = None
 
 
 def limit_questions(text, allowance):
@@ -118,7 +123,7 @@ def limit_questions(text, allowance):
 
 
 class AgentService:
-    def __init__(self, rows, store, call_model, log_path=None, skill_routing=False, advice_tendencies=False):
+    def __init__(self, rows, store, call_model, log_path=None, skill_routing=False, advice_tendencies=False, recommendations=None):
         self.rows = {r['id']: r for r in rows}
         self.passages = make_passages(rows)
         self.thinker_profiles = build_profiles(self.passages)
@@ -129,6 +134,7 @@ class AgentService:
         self.sessions, self.events = {}, []
         self.lock = threading.Lock()
         self.log_path = Path(log_path) if log_path else None
+        self.recommendations = recommendations
 
     def session(self, sid):
         with self.lock:
@@ -137,10 +143,40 @@ class AgentService:
                     raise QueryStageError('会话读取', 'session_expired', '会话已结束或服务已重启，请开始新话题。')
                 return self.sessions[sid]
             if len(self.sessions) >= 16:
-                raise QueryStageError('会话创建', 'session_limit', '会话较多，请先结束不用的话题。')
+                idle=next((key for key,value in self.sessions.items() if not value.lock.locked() and value.pending is None),None)
+                if idle is None:
+                    raise QueryStageError('会话创建', 'session_limit', '当前会话较多，请稍后再试。')
+                # Local snapshots restore idle chats when revisited. Never evict
+                # a running turn or a pending action that still needs consent.
+                del self.sessions[idle]
             state = Session(uuid.uuid4().hex)
             self.sessions[state.id] = state
             return state
+
+    def resume_history(self,sid,turns,agent_person=None):
+        """Restore user-approved local history after restart, not tool authority.
+
+        Never replay pending actions or saved tool calls from disk.
+        """
+        with self.lock:
+            if sid in self.sessions:return sid
+        state=self.session(None)
+        state.agent_person=agent_person
+        recent=turns[-6:]
+        for turn in recent:
+            question=turn['question'];result=turn['result']
+            state.topic_messages.append(question)
+            brief={'synthesis':result.get('synthesis',''),
+                   'cards':[{'person':c.get('person'),'explanation':c.get('explanation')} for c in result.get('cards',[])]}
+            state.turns.append([{'role':'user','content':question},{'role':'assistant','content':json.dumps(brief,ensure_ascii=False)}])
+        if recent:
+            last=recent[-1]['result'];clarification=last.get('clarification',{})
+            state.awaiting_clarification=bool(clarification.get('awaiting_answer'))
+            state.clarification_questions=min(2,clarification.get('asked',0))
+            state.clarification_answers=min(2,clarification.get('answered',0))
+            state.advice_delivered=bool(last.get('cards'))
+        state.turn_count=len(turns)
+        return state.id
 
     def reset(self, sid):
         if not sid:
@@ -238,6 +274,15 @@ class AgentService:
                         or item['concept_id'] not in {c['id'] for c in concepts}):
                     return {'ok':False,'error':'unknown_skill_concept'}
                 chosen.append(person)
+            plan = state.recommendation_plan
+            if plan and plan.get('mode')=='personalized' and len(chosen)==4:
+                from collections import Counter
+                counts=Counter(plan['groups'].get(p,'recommended') for p in chosen)
+                target={g:n for g,n in plan['quotas'].items() if n}
+                exception=args.get('recommendation_exception','')
+                if dict(counts)!=target and not (isinstance(exception,str) and 8<=len(exception.strip())<=180):
+                    return {'ok':False,'error':'recommendation_quota','target':plan['quotas'],
+                            'groups':plan['groups'],'hint':'按本轮整数配额选择四个不同人物；确无贴切原文时填写具体recommendation_exception，不硬凑。'}
             state.skill_route = args
             return {'ok':True, 'question_review':args, 'skills':[
                 {**identity(self.person_skills[p]),'instructions':self.person_skills[p]['instructions']}
@@ -350,10 +395,14 @@ class AgentService:
         state.pending = None
         return {'ok': True, 'cancelled': changed, 'no_change': not changed}
 
-    def ask(self, question, sid=None):
+    def ask(self, question, sid=None, agent_person=None):
         if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
             raise QueryStageError('输入', 'invalid_question', '请输入1至2000字的问题。')
         state = self.session(sid)
+        if agent_person is not None and agent_person not in self.person_skills:
+            raise QueryStageError('人物选择','unknown_agent','这个人物的 Skill 尚未接入。')
+        if state.turn_count and state.agent_person!=agent_person:
+            raise QueryStageError('人物选择','agent_mismatch','切换人物请新建对话。')
         if not state.lock.acquire(blocking=False):
             raise QueryStageError('会话执行', 'session_busy', '本会话正在处理上一条消息。')
         work = [{'role': 'user', 'content': question.strip()}]
@@ -364,6 +413,7 @@ class AgentService:
         current_source_ids = set()
         explicit_readback = bool(re.search(r'第[一二三四五六七八九十\d]+条|这句|这段原文|这条原文|原文.{0,8}(?:意思|解释|上下文)|(?:展开|解读).{0,6}(?:原文|第一|第二)', question))
         try:
+            state.agent_person=agent_person
             state.turn_count += 1
             if re.match(r'^\s*(?:换(?:个|一个)?话题|另一个问题|新问题|重新开始)', question):
                 state.clarification_questions = state.clarification_answers = 0
@@ -377,7 +427,10 @@ class AgentService:
                 state.awaiting_clarification = False
             state.topic_messages = (state.topic_messages + [question.strip()])[-12:]
             named_people = detect_named_people(question, self.person_skills)
-            state.requested_people = named_people or (state.requested_people if answering else ())
+            state.requested_people = (agent_person,) if agent_person else named_people or (state.requested_people if answering else ())
+            state.recommendation_plan = (self.recommendations.plan(
+                set(self.thinker_profiles) & set(self.person_skills), state.requested_people)
+                if self.recommendations else {})
             route_required = self.skill_routing and not explicit_readback and not re.search(r'收藏|^确认|^取消', question)
             if route_required:
                 state.skill_route = {}
@@ -395,6 +448,8 @@ class AgentService:
                  'questions_remaining': max(0, 2-state.clarification_questions),
                  'must_retrieve_and_advise': must_retrieve,
                  'displayed_cards': display, 'confirmed_action': confirmed}, ensure_ascii=False)}
+            if agent_person:
+                system['content']+='\n专属人物对话：你以'+agent_person+'的思考框架和表达特点回应。只使用此人的已校验Skill和原著资料，保持自然第一人称；不切换其他人物，不以AI生成解读冒充历史原话。资料不够就明确范围，可简短追问，不补造引用。'
             if self.skill_routing:
                 available = {r['person'] for r in self.rows.values()}
                 guide = catalog(self.person_skills, set(state.requested_people) if state.requested_people else available)
@@ -414,6 +469,12 @@ class AgentService:
                     '依据当前事实、该人物Skill与已核验的原句，估计本次建议的相对侧重，不是概率、正确率、事实测量或历史本人意见。'
                     '每位人物内部各选项的percent单独合计100（四张卡片各自100，不是四人合起来100）。percent只用JSON整数0、10、20、30、40、50、60、70、80、90、100，不用字符串或小数；不能为了人物对比而强造差异，不能套固定模板数值。理由一句说明为何这样侧重，须与正文立场一致。'
                     '信息不足以分配时advice_tendency:null，tendency_reason说明缺什么；必要时按原规则简短追问，不硬填数字。')
+            if state.recommendation_plan:
+                system['content'] += ('\n人物兴趣推荐计划（优先于默认选四人；用户明确点名优先级最高）：'
+                    +json.dumps(state.recommendation_plan,ensure_ascii=False)
+                    +'\n按groups区分你感兴趣/系统推荐/兴趣相似，同一人只算一组。quotas是本轮四人的整数名额，正常情况下遵守。'
+                    '从各组中选最能解决当前问题且有本地原文的人，不按知名度选。相似仅指思想主题接近，不是意见必然相同。'
+                    '确实不适配时可以不足四人或说明recommendation_exception后补位，严禁为配额编造引句或读心。')
             if state.requested_people:
                 system['content'] += ('\n本轮已点名人物：'+ '、'.join(state.requested_people)
                     +'。只检索并解释这些人物，cards最多'+str(min(4,len(state.requested_people)))+'张；同一人物只一张，不能用同人的其他段落重复凑卡片。')
@@ -567,6 +628,13 @@ class AgentService:
                     state.terms = []
                 result.update(terms=state.terms, tool_trace=trace, pending_confirmation=state.pending is not None,
                               turn=state.turn_count)
+                if self.recommendations and state.recommendation_plan and searched and not result.get('cards_retained'):
+                    result['recommendation'] = self.recommendations.commit(state.recommendation_plan,result['cards'])
+                    result['recommendation']['exception']=state.skill_route.get('recommendation_exception','')
+                    for card in result['cards']:
+                        group=state.recommendation_plan['groups'].get(card['person'],'recommended')
+                        card['recommendation_group']=group
+                        card['recommendation_label']=LABELS[group]
                 title = state.skill_route.get('question_title') or parsed.get('question_title')
                 if not isinstance(title, str) or not title.strip():
                     title = state.skill_route.get('question_focus') or question

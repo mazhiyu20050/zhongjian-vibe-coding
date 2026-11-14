@@ -9,7 +9,7 @@ from corpus import ROOT, load_library
 from query import make_passages, quote_candidates
 from thinkers import build_profiles
 from person_skills import load_skills
-from person_registry import EXPANSION, MODERN_SLUGS, named_people
+from person_registry import EXPANSION, MODERN_SLUGS, PREFERENCE_PEOPLE, named_people
 from agent import AgentService
 from collections_store import CollectionStore
 from test_agent import tool, final
@@ -24,7 +24,7 @@ class ExpandedPeopleTests(unittest.TestCase):
         cls.skills=load_skills()
 
     def test_twelve_people_have_skills_and_local_sources(self):
-        expected={'王阳明','毛泽东','弗洛伊德'}|{p for p,_ in EXPANSION.values()}
+        expected={'王阳明','毛泽东','弗洛伊德'}|{p for p,_ in {**EXPANSION,**PREFERENCE_PEOPLE}.values()}
         self.assertEqual(set(self.skills),expected)
         self.assertEqual({r['person'] for r in self.rows},expected)
         self.assertEqual(set(self.profiles),expected)

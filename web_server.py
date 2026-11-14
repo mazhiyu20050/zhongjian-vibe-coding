@@ -19,6 +19,10 @@ from agent import AgentService
 from check_api import complete
 from presentation import with_display
 from source_details import build_details
+from recommendations import RecommendationStore, people_catalog
+from people_discovery import search_people, discover_skill
+from discovery_jobs import DiscoveryJobs
+from conversations import ConversationStore
 
 ROOT = Path(__file__).resolve().parent
 
@@ -40,8 +44,14 @@ class LocalServer(ThreadingHTTPServer):
         self.detail_client = None
         self.detail_cache = {}
         self.slots = threading.BoundedSemaphore(2)
+        self.recommendations = RecommendationStore(self.collections.path)
+        self.conversations = ConversationStore(self.collections.path)
+        self.discovery_lock = threading.Lock()
+        self.discovered_people = {}; self.project_folder_selections = {}
+        self.discovery_jobs = DiscoveryJobs(self.collections.path.parent,lambda q:search_people(q),lambda p,f:discover_skill(p,f))
 
     def server_close(self):
+        self.discovery_jobs.close()
         super().server_close()
         if self.collection_tmp:
             self.collection_tmp.cleanup()
@@ -87,10 +97,32 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
-                  '/style.css': ('style.css', 'text/css; charset=utf-8')}
+                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                  '/people.js': ('people.js', 'text/javascript; charset=utf-8'),
+                  '/shell.js': ('shell.js', 'text/javascript; charset=utf-8'),
+                  '/shell.css': ('shell.css', 'text/css; charset=utf-8'),
+                  '/agents.js': ('agents.js', 'text/javascript; charset=utf-8'),
+                  '/agents.css': ('agents.css', 'text/css; charset=utf-8'),
+                  '/portrait-credits': ('portraits/credits.html', 'text/html; charset=utf-8'),
+                  '/people.css': ('people.css', 'text/css; charset=utf-8')}
         if parsed.path in assets:
             filename, mime = assets[parsed.path]
             return self.send(200, (ROOT / 'web' / filename).read_bytes(), mime)
+        if parsed.path.startswith('/portraits/'):
+            name=parsed.path[len('/portraits/'):]
+            if '/' in name or '\\' in name or not name.endswith(('.jpg','.png','.webp')):
+                return self.send(404,{'error':'not_found'})
+            path=ROOT/'web'/'portraits'/name
+            if not path.is_file():return self.send(404,{'error':'not_found'})
+            mime='image/png' if name.endswith('.png') else 'image/webp' if name.endswith('.webp') else 'image/jpeg'
+            return self.send(200,path.read_bytes(),mime)
+        if parsed.path=='/api/agents':
+            if not self.authorized():return
+            from person_skills import load_skills
+            skills=load_skills();available={r['person'] for r in self.server.rows}
+            manifest=ROOT/'web'/'portraits'/'manifest.json'
+            portraits=json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else {}
+            return self.send(200,{'agents':[{**p,'portrait':portraits.get(p['person'])} for p in people_catalog() if p['person'] in skills and p['person'] in available]})
         if parsed.path == '/api/session':
             return self.send(200, {'token': self.server.nonce, 'ready': self.server.engine is not None,
                                   'person': '、'.join(sorted({r['person'] for r in self.server.rows})), 'records': len(self.server.rows),
@@ -102,6 +134,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {'items': self.server.collections.list()})
             except sqlite3.Error:
                 return self.send(503, {'error': 'storage_error', 'message': '收藏库暂时读取异常，请稍后再试。'})
+        if parsed.path=='/api/people/jobs':
+            if not self.authorized():return
+            return self.send(200,{'jobs':self.server.discovery_jobs.list()})
+        if parsed.path=='/api/projects':
+            if not self.authorized():return
+            return self.send(200,{'projects':self.server.conversations.projects()})
+        if parsed.path=='/api/conversations':
+            if not self.authorized():return
+            cid=parse_qs(parsed.query).get('id',[None])[0]
+            if cid:
+                conversation=self.server.conversations.get(cid)
+                if not conversation:return self.send(404,{'message':'这条对话尚未找到。'})
+                conversation['turns']=[{**t,'result':with_display({'result':t['result']})['result']} for t in conversation['turns']]
+                return self.send(200,conversation)
+            return self.send(200,{'items':self.server.conversations.list()})
+        if parsed.path in ('/api/people','/api/preferences'):
+            if not self.authorized():return
+            if parsed.path=='/api/preferences':return self.send(200,self.server.recommendations.read())
+            people=people_catalog()
+            available={r['person'] for r in self.server.rows}
+            q=parse_qs(parsed.query).get('q',[''])[0][:80].casefold()
+            return self.send(200,{'people':[{**p,'ready':p['person'] in available} for p in people
+                if not q or q in ' '.join([p['person'],*p.get('aliases',[]),*p.get('tags',[])]).casefold()]})
         if parsed.path == '/api/context':
             rid = parse_qs(parsed.query).get('id', [''])[0]
             row = self.server.by_id.get(rid)
@@ -137,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {'error': 'invalid_request_body'})
         if not self.authorized():
             return
-        if self.path not in ('/api/query', '/api/source/details', '/api/collections/add', '/api/collections/cancel', '/api/session/reset'):
+        if self.path not in ('/api/query', '/api/source/details', '/api/collections/add', '/api/collections/cancel', '/api/session/reset', '/api/preferences', '/api/people/discover', '/api/people/skill', '/api/people/jobs', '/api/people/jobs/select', '/api/projects', '/api/conversations/move', '/api/projects/rename', '/api/projects/reveal', '/api/conversations/pin', '/api/projects/folder', '/api/projects/status','/api/conversations/manage','/api/conversations/branch','/api/conversations/window','/api/projects/manage'):
             return self.send(404, {'error': 'not_found'})
         if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
             return self.send(415, {'error': 'json_required'})
@@ -145,6 +200,95 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw_body)
             if not isinstance(data, dict):
                 return self.send(400, {'error': 'invalid_body'})
+            if self.path=='/api/conversations/window':
+                opener=getattr(self.server,'open_conversation_window',None)
+                cid=data.get('id')
+                if opener is None:return self.send(404,{'message':'此入口仅在桌面版可用。'})
+                if not self.server.conversations.get(cid):return self.send(404,{'message':'对话不存在。'})
+                opener(cid)
+                return self.send(200,{'ok':True})
+            if self.path in ('/api/conversations/manage','/api/conversations/branch'):
+                try:
+                    store=self.server.conversations
+                    if self.path.endswith('/branch'):
+                        return self.send(201,{'id':store.branch(data.get('id'))})
+                    store.manage(data.get('id'),data.get('field'),data.get('value'))
+                    return self.send(200,{'ok':True})
+                except ValueError:return self.send(400,{'message':'请检查对话或输入内容。'})
+            if self.path=='/api/projects/folder':
+                try:
+                    from project_folders import choose_folder
+                    folder=choose_folder()
+                    if not folder:return self.send(200,{'cancelled':True})
+                    folder=str(Path(folder).resolve());selection=secrets.token_hex(16)
+                    selections=self.server.project_folder_selections
+                    if len(selections)>=8:selections.pop(next(iter(selections)))
+                    selections[selection]=folder
+                    return self.send(200,{'selection_id':selection,'path':folder,'name':Path(folder).name[:40]})
+                except Exception:return self.send(500,{'message':'文件夹选择窗口打开失败，请重试。'})
+            if self.path=='/api/projects/manage':
+                try:
+                    changed=self.server.conversations.manage_project(data.get('id'),data.get('action'),data.get('value'))
+                    return self.send(200,{'ok':True,'changed':changed})
+                except ValueError:return self.send(400,{'message':'请检查项目或操作。'})
+            if self.path=='/api/projects/status':
+                try:
+                    self.server.conversations.project_status(data.get('id'),data.get('status'))
+                    return self.send(200,{'ok':True})
+                except ValueError:return self.send(400,{'message':'请检查项目状态。'})
+            if self.path in ('/api/projects/rename','/api/projects/reveal','/api/conversations/pin', '/api/projects/folder', '/api/projects/status'):
+                try:
+                    store=self.server.conversations
+                    if self.path.endswith('/rename'):store.rename_project(data.get('id'),data.get('name'))
+                    elif self.path.endswith('/pin'):store.pin(data.get('id'),data.get('pinned'))
+                    else:
+                        folder=store.project_folder(data.get('id'))
+                        if os.name!='nt':return self.send(400,{'message':'此入口适用于 Windows 资源管理器。'})
+                        os.startfile(str(folder))
+                    return self.send(200,{'ok':True})
+                except ValueError:return self.send(400,{'message':'请检查项目或对话。'})
+                except OSError:return self.send(500,{'message':'打开目录时出错，请稍后重试。'})
+            if self.path in ('/api/projects','/api/conversations/move'):
+                try:
+                    if self.path=='/api/projects':
+                        selection=data.get('selection_id');folder=None
+                        if selection is not None:
+                            if not isinstance(selection,str) or selection not in self.server.project_folder_selections:raise ValueError('invalid_selection')
+                            folder=self.server.project_folder_selections[selection]
+                        result=self.server.conversations.create_project(data.get('name'),folder)
+                        if selection:self.server.project_folder_selections.pop(selection,None)
+                        return self.send(201,result)
+                    self.server.conversations.move(data.get('conversation_id'),data.get('project_id'))
+                    return self.send(200,{'moved':True})
+                except ValueError:return self.send(400,{'message':'请检查项目名称或对话。'})
+            if self.path=='/api/preferences':
+                try:return self.send(200,self.server.recommendations.save(data.get('selected')))
+                except ValueError:return self.send(400,{'message':'请选择人物列表中的人物。'})
+            if self.path in ('/api/people/jobs','/api/people/jobs/select'):
+                try:
+                    manager=self.server.discovery_jobs
+                    job=manager.choose(data.get('id'),data.get('wikidata_id')) if self.path.endswith('/select') else manager.start(data.get('query'),data.get('retry') is True)
+                    return self.send(202,{'job':job})
+                except ValueError:return self.send(400,{'message':'请填写姓名，或选择已核验的人物。'})
+                except RuntimeError:return self.send(429,{'message':'后台任务较多，请稍后再试。'})
+            if self.path in ('/api/people/discover','/api/people/skill'):
+                if not self.server.discovery_lock.acquire(blocking=False):
+                    return self.send(429,{'message':'正在查询人物资料，请稍后。'})
+                try:
+                    if self.path.endswith('/discover'):
+                        items=search_people(data.get('query'))
+                        if len(self.server.discovered_people)>128:self.server.discovered_people.clear()
+                        for p in items:self.server.discovered_people[p['wikidata_id']]=p
+                        return self.send(200,{'people':items,'note':'人物存在不表示一定有可用Skill；请选择正确的同名人物。'})
+                    person=self.server.discovered_people.get(data.get('wikidata_id'))
+                    if not person:return self.send(400,{'message':'请先联网检验人物并选择身份。'})
+                    result=discover_skill(person,self.server.collections.path.parent/'skills-incoming')
+                    return self.send(200,result)
+                except ValueError:
+                    return self.send(400,{'message':'请输入1至80字的人名。'})
+                except Exception:
+                    return self.send(502,{'message':'人物库或Skill来源暂时连接异常，请稍后重试。'})
+                finally:self.server.discovery_lock.release()
             if self.path == '/api/source/details':
                 return self.source_details(data)
             if self.path == '/api/session/reset':
@@ -159,19 +303,39 @@ class Handler(BaseHTTPRequestHandler):
             question = data.get('question')
             if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
                 return self.send(400, {'error': 'invalid_question', 'message': '请输入1至2000字的问题。'})
+            cid=data.get('conversation_id')
+            self.server.conversations.validate_project(data.get('project_id'))
+            conversation=self.server.conversations.get(cid) if cid else None
+            if cid and not conversation:return self.send(404,{'message':'请重新选择历史对话，或新建对话。'})
+            agent_person=data.get('agent_person')
+            if conversation:
+                if agent_person is not None and agent_person!=conversation.get('agent_person'):
+                    return self.send(409,{'message':'切换人物请新建对话。'})
+                agent_person=conversation.get('agent_person')
+            if agent_person is not None and (not isinstance(agent_person,str) or agent_person not in {p['person'] for p in people_catalog()}):
+                return self.send(400,{'message':'请选择已接入的人物。'})
         except (ValueError, UnicodeError):
             return self.send(400, {'error': 'invalid_json'})
         if self.server.engine is None:
             return self.send(503, {'error': 'key_not_configured', 'message': '后台尚未加载密钥，请通过启动脚本打开。'})
+        if agent_person and not self.server.agent:
+            return self.send(503,{'message':'专属人物服务尚未就绪。'})
         if not self.server.slots.acquire(blocking=False):
             return self.send(429, {'error': 'busy', 'message': '当前查询较多，请稍后再试。'})
         try:
             if self.server.agent:
-                answer = self.server.agent.ask(question.strip(), data.get('session_id'))
-                self.send(200, {**answer, 'mode': 'live_agent'})
+                sid=conversation.get('session_id') if conversation else data.get('session_id')
+                if conversation:sid=self.server.agent.resume_history(sid,conversation['turns'],agent_person)
+                answer = self.server.agent.ask(question.strip(), sid, agent_person=agent_person) if agent_person else self.server.agent.ask(question.strip(), sid)
+                answer={**answer,'mode':'live_agent'}
             else:
                 result = self.server.engine(question.strip())
-                self.send(200, {'result': result, 'mode': 'live'})
+                answer={'result':result,'mode':'live'}
+            try:
+                answer['conversation_id']=self.server.conversations.append(cid,question.strip(),answer['result'],answer.get('session_id'),agent_person,data.get('project_id'))
+            except (sqlite3.Error,OSError,ValueError):
+                answer['history_warning']='回答已完成，本机历史暂未保存。'
+            self.send(200,answer)
         except QueryStageError as exc:
             self.send(422, {'error': exc.code, 'stage': exc.stage, 'message': exc.reason,
                             'session_id': getattr(exc, 'session_id', data.get('session_id'))})
@@ -246,26 +410,38 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, {'error': 'storage_error', 'message': '本次收藏操作未完成，请稍后重试。'})
 
 
+def create_server(port=8765, key='', model='deepseek-flash', storage=None, server_class=LocalServer):
+    """Shared web/desktop backend; desktop supplies its writable user directory."""
+    storage = Path(storage) if storage else ROOT / '.local'
+    rows = load_library()
+    server = server_class(('127.0.0.1', port), rows, None, storage / 'collections.sqlite3')
+    configure_server(server, key, model, storage)
+    return server
+
+
+def configure_server(server, key, model, storage):
+    client = make_model_client(key, model) if key else None
+    agent = None
+    if key:
+        def call_agent(messages, **options):
+            return complete(key, model, messages, max_tokens=4096, thinking={'type': 'disabled'},
+                            response_format={'type': 'json_object'}, **options)
+        agent = AgentService(server.rows, server.collections, call_agent,
+                             Path(storage) / 'logs' / 'agent_tools.jsonl',
+                             skill_routing=True, advice_tendencies=True, recommendations=server.recommendations)
+    server.engine = (lambda question: query(question, server.rows, client)) if key else None
+    server.detail_client = client
+    server.agent = agent
+    server.model_name = model if key else None
+    server.detail_cache.clear()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
-    rows = load_library()
     key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
-    engine = None
-    if key:
-        client = make_model_client(key, os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash')
-        engine = lambda question: query(question, rows, client)
-    server = LocalServer(('127.0.0.1', args.port), rows, engine, ROOT / '.local' / 'collections.sqlite3')
-    server.model_name = (os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash') if key else None
-    if key:
-        server.detail_client = client
-    if key:
-        model = os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash'
-        def call_agent(messages, **options):
-            return complete(key, model, messages, max_tokens=4096, thinking={'type': 'disabled'},
-                            response_format={'type': 'json_object'}, **options)
-        server.agent = AgentService(rows, server.collections, call_agent, ROOT / 'logs' / 'agent_tools.jsonl', skill_routing=True, advice_tendencies=True)
+    server = create_server(args.port, key, os.environ.get('DEEPSEEK_MODEL') or 'deepseek-flash', ROOT / '.local')
     print(f'众见已启动：http://127.0.0.1:{server.server_port}', flush=True)
     print('只监听本机；问题与结果不自动保存；按 Ctrl+C 结束。', flush=True)
     try:

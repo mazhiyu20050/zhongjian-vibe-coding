@@ -78,7 +78,9 @@ class PresentationTests(unittest.TestCase):
         parser.feed((Path(__file__).parent / 'web/index.html').read_text(encoding='utf-8'))
         self.assertEqual(parser.tags.count('textarea'), 1)
         self.assertEqual(parser.tags.count('input'), 0)
-        self.assertEqual(parser.tags.count('button'), 1)
+        # Send, circular menu/new-chat, drawer close and settings. Person picker
+        # is inserted by people.js; there are still no extra buttons in the query form.
+        self.assertEqual(parser.tags.count('button'), 5)
         self.assertNotIn('header', parser.tags)
         self.assertNotIn('footer', parser.tags)
 

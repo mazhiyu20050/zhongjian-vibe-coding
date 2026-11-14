@@ -2,7 +2,7 @@
 from presentation import simplified
 from pathlib import Path
 import json
-from person_registry import EXPANSION
+from person_registry import EXPANSION, PREFERENCE_PEOPLE
 
 SPECS = {
  '王阳明': [
@@ -33,7 +33,7 @@ SPECS = {
  ]}
 
 # Additions are explicit, reviewed project data, never arbitrary directory imports.
-for _slug, (_person, _) in EXPANSION.items():
+for _slug, (_person, _) in {**EXPANSION,**PREFERENCE_PEOPLE}.items():
     _path = Path(__file__).resolve().parent / 'data' / 'processed' / f'thoughts_{_slug}.json'
     if _path.exists():
         _specs = json.loads(_path.read_text(encoding='utf-8'))
