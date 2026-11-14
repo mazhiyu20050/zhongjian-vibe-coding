@@ -1,0 +1,48 @@
+#agent-dock{position:fixed;top:0;left:0;right:0;height:15px;z-index:40}
+#agent-trigger{position:absolute;top:0;left:82px;right:82px;width:calc(100% - 164px);height:15px;border:0;border-radius:0;background:transparent;padding:0;opacity:0}
+#agent-trigger:focus-visible{opacity:1;background:#edf1e4;outline-offset:-2px}
+#agent-panel{position:fixed;inset:0;display:flex;flex-direction:column;padding:22px 0 20px;background:radial-gradient(ellipse at 50% 48%,#fafaf93b 10%,#fafaf9b8 75%);border:0;box-shadow:none;transform:translateY(-30px);opacity:0;pointer-events:none;transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .25s;overflow:hidden}
+#agent-dock.open #agent-panel{transform:translateY(0);opacity:1;pointer-events:auto}
+body:has(#agent-dock.open) main{filter:blur(7px);opacity:.12;pointer-events:none;transition:filter .2s,opacity .2s}
+.agent-panel-head{position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;flex:0 0 38px;width:min(1100px,calc(100% - 160px));margin:0 auto;color:#718060}
+.agent-panel-head h2{font-size:16px;font-weight:400;margin:0}
+#agent-default{display:block;flex:none;width:auto;height:auto;background:#fafaf9a8;font-size:11px;color:#81916d;padding:8px 13px;border:1px solid #dce5cf;border-radius:18px}
+#agent-panel-close{position:fixed;right:24px;top:22px;width:42px;height:42px;background:#fafaf9d9;border:1px solid #dce3d2;color:#81916d;border-radius:50%;font-size:24px;z-index:130}
+#agent-cards{position:relative;flex:1;min-height:0;width:100%;overflow:visible;perspective:1400px;touch-action:pan-y;outline:none}
+#agent-cards .agent-card{--hover-scale:1;position:absolute;left:50%;top:48%;display:block;width:clamp(210px,32vw,390px);height:min(70dvh,660px);min-height:290px;padding:0;border:2px solid #ffffffd9;border-radius:24px;overflow:hidden;background:#e9eee1;transform:var(--wheel-transform,translate(-50%,-50%)) scale(var(--hover-scale));transform-origin:50% 55%;box-shadow:0 22px 48px #26341e24;will-change:transform;transition:box-shadow .18s,border-color .18s,filter .18s;cursor:pointer}
+#agent-cards .agent-card img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 28%;transition:transform .25s,filter .2s;transform:scale(1.015)}
+#agent-cards .agent-card::after{content:'';position:absolute;inset:45% 0 0;pointer-events:none;background:linear-gradient(transparent,#15200c8a 70%,#15200cce)}
+#agent-cards .agent-card strong{position:absolute;bottom:42px;left:14px;right:14px;z-index:2;font-size:clamp(20px,2.8vw,30px);font-weight:500;line-height:1.5;text-align:center;color:#fff;text-shadow:0 2px 12px #0005}
+#agent-cards .agent-card small{position:absolute;bottom:23px;left:10px;right:10px;z-index:2;color:#ffffffbd;font-size:11px;line-height:1.7;letter-spacing:2px}
+#agent-cards .agent-card:hover,#agent-cards .agent-card:focus-visible{--hover-scale:1.065;border-color:#c8dd9a;box-shadow:0 0 0 4px #c4d99d80,0 35px 85px #253a1e5c;outline:none}
+#agent-cards .agent-card:hover img,#agent-cards .agent-card:focus-visible img{transform:scale(1.12);filter:brightness(1.13) saturate(1.05)}
+#agent-cards .agent-card[aria-pressed=true]{border:3px solid #d5e8b5;box-shadow:0 0 0 4px #c4d99d66,0 30px 70px #253a1e38}
+#agent-cards .agent-card.is-center{border-color:#f4f8e9;box-shadow:0 28px 65px #273c2242}
+#agent-cards .agent-card.is-center:hover,#agent-cards .agent-card.is-center:focus-visible{border-color:#c8dd9a;box-shadow:0 0 0 4px #c4d99d80,0 35px 85px #253a1e5c}
+.portrait-placeholder{display:grid;place-items:center;width:100%;height:100%;background:linear-gradient(150deg,#d9e2c9,#f5f6ee);font-size:90px;color:#a9b995}
+#agent-note{position:relative;z-index:120;flex:none;color:#8a9879;font-size:10px;line-height:1.8;text-align:center;padding:0 20px;margin:0}
+#agent-note a{color:inherit;text-decoration:none}#agent-note a:hover{text-decoration:underline}
+.agent-wheel-hint{position:relative;z-index:120;margin:0 0 7px;font-size:11px;text-align:center;color:#8c9b7b;letter-spacing:2px}
+.agent-current{position:fixed;top:26px;left:50%;transform:translateX(-50%);width:auto;height:auto;padding:6px 12px;background:transparent;border:1px solid #e5e9dd;border-radius:15px;font-size:11px;color:#8c977d;z-index:26}
+main.single-agent.has-answer{width:min(760px,calc(100% - 48px))}.single-agent .cards-grid{grid-template-columns:1fr;grid-auto-rows:auto}
+@media(max-width:640px){#agent-panel{padding-top:17px;padding-bottom:14px}.agent-panel-head{width:calc(100% - 130px);gap:10px}.agent-panel-head h2{font-size:13px}#agent-default{font-size:9px;padding:7px 8px}#agent-panel-close{right:17px;top:17px;width:38px;height:38px}.agent-current{top:22px}#agent-cards .agent-card{width:clamp(180px,53vw,290px);height:min(68dvh,570px);border-radius:20px}.agent-wheel-hint{font-size:10px}#agent-note{font-size:9px}}
+@media(prefers-reduced-motion:reduce){#agent-panel,#agent-cards .agent-card,#agent-cards .agent-card img,body:has(#agent-dock.open) main{transition:none}}
+
+/* Keep the floating selection within the top quarter, leaving chat usable. */
+#agent-panel{inset:0 0 auto;height:25vh;height:25dvh;box-sizing:border-box;padding:6px 0;background:linear-gradient(#fafaf9f5,#fafaf9dd)}
+body:has(#agent-dock.open) main{filter:none;opacity:1;pointer-events:auto}
+.agent-panel-head{flex-basis:28px}.agent-panel-head h2{font-size:12px}
+#agent-default{font-size:10px;padding:4px 8px}
+#agent-panel-close{top:6px;right:24px;width:28px;height:28px;font-size:18px}
+#agent-cards .agent-card{top:50%;height:calc(25dvh - 46px);min-height:0;width:clamp(68px,calc((25dvh - 46px)*.72),155px);border-radius:12px}
+#agent-cards .agent-card strong{font-size:14px;bottom:8px;left:2px;right:2px}
+#agent-cards .agent-card small,#agent-note{display:none}
+@media(max-width:640px){#agent-panel{padding:6px 0}#agent-cards .agent-card{height:calc(25dvh - 46px);min-height:0;width:clamp(68px,calc((25dvh - 46px)*.72),155px)}#agent-panel-close{top:6px}}
+
+/* Vertical control stays inside the wheel's hover area. */
+#agent-scroll{position:absolute;top:40px;right:12px;height:calc(100% - 54px);width:16px;margin:0;z-index:125;writing-mode:vertical-lr;direction:ltr;appearance:none;background:transparent;cursor:ns-resize}
+#agent-scroll::-webkit-slider-runnable-track{width:3px;border-radius:8px;background:#dce4d4}
+#agent-scroll::-webkit-slider-thumb{appearance:none;width:7px;height:20px;margin-left:-2px;border:0;border-radius:8px;background:#82916f}
+#agent-scroll::-moz-range-track{width:3px;border-radius:8px;background:#dce4d4}
+#agent-scroll::-moz-range-thumb{width:7px;height:20px;border:0;border-radius:8px;background:#82916f}
+#agent-scroll:disabled{visibility:hidden}

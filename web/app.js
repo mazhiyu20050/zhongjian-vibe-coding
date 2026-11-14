@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let token = '', busy = false, sessionId = null, lastGoodResult = null;
+let token = '', busy = false, sessionId = null, conversationId = null, agentPerson = null;
 function resizeQuestion(){const q=$('question');q.style.height='auto';q.style.height=Math.max(24,q.scrollHeight)+'px';}
 $('question').addEventListener('input',resizeQuestion);
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy)$('query-form').requestSubmit();}});
@@ -26,7 +26,7 @@ async function getJSON(url, options = {}) {
   if (!response.ok){const friendly={invalid_json:'这次回答没整理完整，请再发送一次，输入的文字仍在。',output_truncated:'这次回答没整理完整，请再发送一次，输入的文字仍在。',invalid_explanation:'这次解读还没核验好，请再试一次，输入的文字仍在。',tool_budget:'这次检索没完成，请再试一次，输入的文字仍在。'};throw new Error(friendly[data.error]||data.message||'暂时没有查询成功，请再试一次。');}
   return data;
 }
-function reply(text, error = false) { $('results').replaceChildren(node('p', text, error ? 'reply error' : 'reply')); $('results').hidden = false; }
+function reply(text, error = false) { $('results').append(node('p', text, error ? 'reply error' : 'reply')); $('results').hidden = false; }
 function fillDetails(panel, data, depth, question) {
   panel.replaceChildren();
   const paragraphs = data.reading.split(/\n+/).map(text => text.trim()).filter(Boolean);
@@ -59,13 +59,48 @@ function attachDetails(article, card, depth = 0) {
     finally { loading = false; panel.removeAttribute('aria-busy'); }
   });
 }
-function render(result, question) {
+let viewpointMenu;
+function attachViewpointMenu(card, summary, person){
+  summary.setAttribute('aria-haspopup','menu');
+  function open(event,x,y){
+    event.preventDefault();
+    if(viewpointMenu)viewpointMenu.close();
+    const menu=node('div',undefined,'viewpoint-context-menu');
+    menu.setAttribute('role','menu');
+    const action=node('button','与'+person+'对话');
+    action.type='button';action.setAttribute('role','menuitem');action.disabled=busy;
+    const controller=new AbortController(), options={signal:controller.signal};
+    function close(restore=false){
+      controller.abort();menu.remove();viewpointMenu=null;
+      if(restore)summary.focus({preventScroll:true});
+    }
+    viewpointMenu={close};
+    menu.append(action);document.body.append(menu);
+    const box=menu.getBoundingClientRect();
+    menu.style.left=Math.max(8,Math.min(x,window.innerWidth-box.width-8))+'px';
+    menu.style.top=Math.max(8,Math.min(y,window.innerHeight-box.height-8))+'px';
+    menu.tabIndex=-1;(action.disabled?menu:action).focus({preventScroll:true});
+    action.addEventListener('click',()=>{close();if(!busy)document.dispatchEvent(new CustomEvent('zhongjian:choose-agent',{detail:person}));});
+    document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},options);
+    document.addEventListener('contextmenu',e=>{if(!menu.contains(e.target)&&!card.contains(e.target))close();},options);
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(true);}else if(e.key==='Tab')close(true);},options);
+    window.addEventListener('resize',()=>close(),options);
+    document.addEventListener('scroll',()=>close(),{...options,capture:true});
+  }
+  card.addEventListener('contextmenu',e=>open(e,e.clientX,e.clientY));
+  summary.addEventListener('keydown',e=>{
+    if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){
+      const box=summary.getBoundingClientRect();open(e,box.left,box.bottom);
+    }
+  });
+}
+
+function render(result, question, panel) {
   question = result.question_context || question;
-  const panel = $('results'); panel.replaceChildren();
+  panel.replaceChildren();
   const cards = result.cards || [];
   const title = node('h2', undefined, 'question-title');
   title.append(node('mark', result.question_title || question.slice(0,18)));
-  panel.append(title);
   if (result.clarification?.awaiting_answer || result.pending_confirmation) panel.append(node('p', result.display_reply || '', 'reply'));
   else if (!cards.length) panel.append(node('p', '未找到贴切原文。', 'empty-result'));
   const grid=node('div',undefined,'cards-grid');
@@ -100,52 +135,60 @@ function render(result, question) {
     else paragraph.textContent = d.excerpt;
     if(d.is_translation){paragraph.title='所选英文原句的AI译意；展开可核对英文';paragraph.append(node('span','（译）','translation-note'));}
     summary.append(paragraph);
-    article.append(summary); attachDetails(article, {...card,reader_question:question}); grid.append(article);
+    article.append(summary);
+    attachViewpointMenu(article,summary,d.person);attachDetails(article, {...card,reader_question:question}); grid.append(article);
   }
+  if(cards.length) panel.append(title);
   panel.hidden = false;
 }
-function motion(element, frames, duration, easing = 'cubic-bezier(.22,1,.36,1)') {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
-  const animation = element.animate(frames, {duration, easing, fill:'both'});
-  return animation.finished.catch(() => {}).finally(() => animation.cancel());
+function makeTurn(question){
+  const section=node('section',undefined,'history-turn');
+  const answer=node('div',undefined,'turn-answer');
+  section.append(node('p',question,'history-question'),answer);
+  return {section,answer};
 }
-async function foldSearch() {
-  const form = $('query-form'), results = $('results');
-  const fading = results.hidden ? Promise.resolve() : motion(results, [{opacity:1},{opacity:0,transform:'translateY(-6px)'}], 220);
-  await Promise.all([fading, motion(form, [{opacity:1,transform:'scale(1)',filter:'blur(0)'},{opacity:0,transform:'scale(.04,.72)',filter:'blur(3px)'}], 340, 'cubic-bezier(.55,0,.3,1)')]);
-  form.hidden = true; results.hidden = true; results.replaceChildren();
-  document.querySelector('main').classList.remove('has-answer');
-  $('thinking').hidden = false;
-}
-async function revealSearch() {
-  $('thinking').hidden = true;
-  document.querySelector('main').classList.add('has-answer');
-  $('query-form').hidden = false;
-  resizeQuestion();
-  await Promise.all([
-    motion($('results'), [{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}], 360),
-    motion($('query-form'), [{opacity:0,transform:'translateY(24px) scale(.98)'},{opacity:1,transform:'translateY(0) scale(1)'}], 480)
-  ]);
+function showConversation(history){
+  conversationId=history.id;sessionId=history.session_id||null;
+  document.dispatchEvent(new CustomEvent('zhongjian:project',{detail:history.project_id||null}));
+  agentPerson=history.agent_person||null;document.dispatchEvent(new Event('zhongjian:agent'));
+  const sections=history.turns.map(turn=>{
+    const {section,answer}=makeTurn(turn.question);
+    render(turn.result,turn.question,answer);
+    return section;
+  });
+  $('results').replaceChildren(...sections);$('results').hidden=false;
+  document.querySelector('main').classList.add('has-answer','has-started');
+  $('query-form').hidden=false;$('question').value='';$('question').placeholder='继续说说你的想法';resizeQuestion();
+  sections.at(-1)?.scrollIntoView({block:'start'});
+  document.dispatchEvent(new Event('zhongjian:history'));
 }
 $('query-form').addEventListener('submit', async event => {
   event.preventDefault(); const question = $('question').value.trim(); if (busy || !question) return;
-  busy = true; $('submit').disabled = true; $('question').disabled = true;
-  $('query-form').setAttribute('aria-busy', 'true');
-  const response = getJSON('/api/query', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,session_id:sessionId})}).then(data => ({data}), error => ({error}));
-  try {
-    await foldSearch();
-    const outcome = await response;
-    if (outcome.error) throw outcome.error;
-    render(outcome.data.result, question);
-    lastGoodResult={result:outcome.data.result,question};
-    $('question').value = ''; $('question').placeholder = '继续说说你的想法';
-  } catch (e) { if(lastGoodResult){render(lastGoodResult.result,lastGoodResult.question);$('results').prepend(node('p',e.message,'query-error'));}else reply(e.message,true); }
-  finally {
-    await revealSearch();
-    busy = false; $('submit').disabled = false; $('question').disabled = false;
-    $('query-form').removeAttribute('aria-busy');
+  document.querySelector('main').classList.add('has-started','has-answer');
+  $('new-chat').disabled=true;
+  busy=true; $('submit').disabled=true; $('question').disabled=true;
+  $('query-form').setAttribute('aria-busy','true');
+  const {section,answer}=makeTurn(question);
+  $('results').append(section);$('results').hidden=false;
+  answer.append(node('p','正在思考…','turn-pending'));answer.setAttribute('aria-busy','true');
+  $('question').value='';$('question').placeholder='继续说说你的想法';resizeQuestion();
+  section.scrollIntoView({block:'start'});
+  try{
+    const data=await getJSON('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,session_id:sessionId,conversation_id:conversationId,agent_person:agentPerson,project_id:window.currentProjectId||null})});
+    conversationId=data.conversation_id||conversationId;
+    render(data.result,question,answer);
+    if(data.history_warning)answer.append(node('p',data.history_warning,'detail-note'));
+    document.dispatchEvent(new Event('zhongjian:history'));
+  }catch(e){
+    answer.replaceChildren(node('p',e.message,'query-error'));
+    $('question').value=question;
+  }finally{
+    answer.removeAttribute('aria-busy');busy=false;
+    $('submit').disabled=false;$('question').disabled=false;$('new-chat').disabled=false;
+    $('query-form').removeAttribute('aria-busy');resizeQuestion();
   }
 });
-getJSON('/api/session').then(data => { token = data.token; $('submit').disabled = !data.ready; if (!data.ready) reply('服务尚未就绪，请启动已配置密钥的本机服务。'); }).catch(() => reply('本机服务尚未连接。', true));
+
+getJSON('/api/session').then(data => { token = data.token; document.dispatchEvent(new Event('zhongjian:session-ready')); $('submit').disabled = !data.ready; if (!data.ready) reply('服务尚未就绪，请启动已配置密钥的本机服务。'); }).catch(() => reply('本机服务尚未连接。', true));
 
 resizeQuestion();

@@ -55,3 +55,19 @@ main.has-answer #query-form{max-width:760px;margin:22px auto 0}
 #question::placeholder{color:#a0a19a}
 #query-form #submit{align-self:flex-end}
 .query-error{margin:0 0 16px;color:#8a6257;font-size:13px;line-height:1.7}
+.cards-grid>.card{position:relative}.card-summary::after{display:none}.card-summary .card-top{padding-right:0}
+
+/* Keep each question and its answer together in the scrollable conversation. */
+.history-turn{scroll-margin-top:66px;min-width:0}
+.history-turn+.history-turn{margin-top:36px}
+#results .history-question{width:fit-content;max-width:min(88%,760px);margin:0 0 16px;padding:11px 17px;border-radius:4px 17px 17px;background:#edf2e3;color:#36432e;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;animation:rise .23s ease-out}
+.turn-pending{color:#758169;font-size:13px;padding:0 4px 12px}
+main.has-started{padding-bottom:calc(min(160px,25vh) + 42px)}main.has-started #query-form{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);width:min(760px,calc(100% - 28px));margin:0;z-index:10;box-shadow:0 2px 20px #30312e13}
+main.has-started #question{max-height:min(160px,25vh);overflow:auto}
+
+.card-top>.person{font-family:"KaiTi","STKaiti","Kaiti SC","楷体","Songti SC",serif;font-size:clamp(19px,2.4vw,23px);font-weight:600;letter-spacing:.08em;line-height:1.25;color:#536247}
+.viewpoint-context-menu{position:fixed;z-index:150;width:max-content;max-width:calc(100vw - 16px);padding:5px;border:1px solid #e0e5d8;border-radius:10px;background:#fff;box-shadow:0 8px 30px #27331b22}
+.viewpoint-context-menu button{display:block;width:100%;height:auto;min-height:36px;padding:7px 12px;border-radius:6px;background:transparent;color:#536047;font:inherit;font-size:14px;text-align:left;overflow-wrap:anywhere}
+.viewpoint-context-menu button:hover:enabled,.viewpoint-context-menu button:focus-visible{background:#edf1e7}
+
+.turn-answer .question-title{margin:16px 0 0;padding:0 4px;text-align:center}
