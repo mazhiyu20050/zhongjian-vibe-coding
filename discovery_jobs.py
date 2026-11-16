@@ -14,6 +14,7 @@ import time
 
 from presentation import simplified
 from people_discovery import rank_people,PublicAPIError
+from person_profiles import stage_profile
 
 RUNNING={'queued','searching','downloading','retry_wait'}
 
@@ -145,7 +146,9 @@ class DiscoveryJobs:
                 self._update(jid,status='downloading',people=[person],auto_matched=True,message='已自动匹配，正在查找并下载 Skill…')
                 result=self.download(person,self.folder/'skills-incoming')
                 if result['status']=='downloaded_pending_review':
-                    self._update(jid,status='completed',result=result,message='Skill 已下载，待资料校验。')
+                    try:profile=stage_profile(person,self.folder)
+                    except (OSError, ValueError):profile={}
+                    self._update(jid,status='completed',result={**result,'profile':profile},message='Skill 已下载，待资料校验。')
                 else:
                     self._update(jid,status='no_skill',result=result,message='人物已找到，暂未发现许可明确、姓名匹配的 Skill。')
             except Exception as error:

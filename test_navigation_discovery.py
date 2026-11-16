@@ -53,6 +53,18 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(downloaded,[PERSON['wikidata_id']]);self.assertEqual(len(job['people']),1)
         with self.assertRaises(ValueError):jobs.choose(job['id'],'Q9')
 
+    def test_download_stages_profile_without_activating_skill(self):
+        person={**PERSON,'lifespan':'近现代','portrait_file':'Example portrait.jpg'}
+        self.lookup=lambda q:[person]
+        with patch('person_profiles.prepare_portrait', return_value=('张雪峰', {'url':'/portraits/Q47691464.jpg'})) as picture:
+            job=self.finish((jobs:=self.make()),jobs.start('张雪峰')['id'])
+        self.assertEqual(job['status'],'completed')
+        self.assertFalse(job['result']['active'])
+        self.assertEqual(job['result']['profile']['biography'],'教育咨询人物')
+        profile=Path(self.tmp.name)/'person-profiles'/PERSON['wikidata_id']/'profile.json'
+        self.assertEqual(json.loads(profile.read_text(encoding='utf-8'))['wikidata_id'],PERSON['wikidata_id'])
+        picture.assert_called_once()
+
     def test_old_choice_tasks_resume_automatically(self):
         path=Path(self.tmp.name)/'discovery-jobs.json'
         path.write_text(json.dumps([{'id':'test','status':'awaiting_choice','query':'张雪峰','updated_at':1,'people':[PERSON]}]))

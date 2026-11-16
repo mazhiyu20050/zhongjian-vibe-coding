@@ -68,6 +68,40 @@ main.has-started #question{max-height:min(160px,25vh);overflow:auto}
 .card-top>.person{font-family:"KaiTi","STKaiti","Kaiti SC","楷体","Songti SC",serif;font-size:clamp(19px,2.4vw,23px);font-weight:600;letter-spacing:.08em;line-height:1.25;color:#536247}
 .viewpoint-context-menu{position:fixed;z-index:150;width:max-content;max-width:calc(100vw - 16px);padding:5px;border:1px solid #e0e5d8;border-radius:10px;background:#fff;box-shadow:0 8px 30px #27331b22}
 .viewpoint-context-menu button{display:block;width:100%;height:auto;min-height:36px;padding:7px 12px;border-radius:6px;background:transparent;color:#536047;font:inherit;font-size:14px;text-align:left;overflow-wrap:anywhere}
+.persona-entry{transition:box-shadow .2s ease,border-color .2s ease}
+.persona-entry:hover,.persona-entry:focus-within{border-color:#b6c5a5;box-shadow:0 8px 24px #38452d0d}
+.persona-entry .card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.persona-source-toggle{width:auto;height:auto;padding:5px 10px;border-radius:12px;border:1px solid #dce4d3;background:#f5f8ef;color:#586b49;font-size:11px;white-space:nowrap;cursor:pointer}
+.persona-source-toggle:hover{background:#e9efdf}
+.persona-analysis{padding:21px 24px;margin:0 0 16px;background:#f7faf3;border:1px solid #dde7d6;border-radius:16px;animation:persona-reveal .36s cubic-bezier(.2,.78,.27,1) both}
+.persona-analysis h3{margin:0 0 12px;color:#395334;font-size:16px}
+.persona-analysis p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
+.query-error-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+.query-error-row .query-error{margin:0}
+.query-retry,.persona-back{font:inherit;font-size:12px;color:#455d3a;border:1px solid #d5e0cb;border-radius:14px;padding:5px 10px;background:#f1f6eb;width:auto;height:auto;cursor:pointer}
+.query-retry:hover,.persona-back:hover{background:#e4efdb}
+.persona-back{position:fixed;top:26px;left:76px;z-index:26}
+.persona-origin{margin-bottom:22px;padding:0 0 12px;border-bottom:1px solid #e0e7d8}
+.persona-origin>summary{width:max-content;color:#5b6c50;font-size:13px;font-weight:650;margin:0 0 15px;cursor:pointer}
+.persona-origin .persona-entry .card-summary{cursor:default}
+.persona-origin .turn-answer>.query-error-row .query-retry{display:none}
+@media(min-width:641px){.single-agent .persona-origin .cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.persona-back{top:22px;left:66px}}
+.question-queue{position:fixed;left:50%;bottom:calc(19px + var(--composer-height,60px));transform:translateX(-50%);width:min(760px,calc(100% - 28px));max-height:min(31vh,240px);overflow:auto;z-index:11;padding:9px 13px;border:1px solid #dde5d7;border-radius:17px;background:#f4f7ef;box-shadow:0 4px 18px #30312e12;color:#334632}
+.queue-header,.queue-item{display:flex;align-items:center;gap:7px}
+.queue-header{flex-wrap:wrap;font-size:11px;color:#53694a}
+.queue-items{padding:0;margin:5px 0 0;list-style:none}
+.queue-item{min-height:36px;padding:4px 0;border-top:1px solid #e2e9dc}
+.queue-number{flex:none;font-size:11px;color:#617356;min-width:1.2em}
+.queue-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.queue-item textarea{flex:1;min-width:0;padding:5px 7px;border:1px solid #cfdcc7;border-radius:8px;background:#fff;font:inherit;resize:vertical}
+.queue-action{flex:none;width:auto;min-width:27px;height:28px;padding:2px 5px;border:0;border-radius:8px;background:transparent;color:#40573b;cursor:pointer;font:inherit;font-size:12px}
+.queue-action:hover:not(:disabled){background:#e4eddd}
+.queue-action:disabled{opacity:.28;cursor:default}
+.queue-header .queue-action{margin-left:auto;background:#e6eedf}
+.single-agent .turn-pending{animation:persona-reveal .24s cubic-bezier(.2,.78,.27,1) both}
+@keyframes persona-reveal{from{opacity:0;transform:translate3d(0,9px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+@media(prefers-reduced-motion:reduce){.persona-entry{transition:none}.persona-analysis,.single-agent .turn-pending{animation:none}}
 .viewpoint-context-menu button:hover:enabled,.viewpoint-context-menu button:focus-visible{background:#edf1e7}
 
 .turn-answer .question-title{margin:16px 0 0;padding:0 4px;text-align:center}

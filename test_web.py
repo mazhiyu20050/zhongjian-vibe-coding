@@ -1,10 +1,11 @@
 import json
+import hashlib
 from pathlib import Path
 import threading
 import unittest
 import urllib.request
 import urllib.error
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from web_server import LocalServer
 from test_query import source
 
@@ -39,6 +40,72 @@ class WebTests(unittest.TestCase):
             self.request('/api/source/details', {'passage_id': 'fake'})
         self.assertEqual(caught.exception.code, 403)
         caught.exception.close()
+
+    def test_conversation_outline_is_lazy_cached_and_follows_new_turn(self):
+        answer = {'cards': [{'person': '孔子', 'explanation': '先问清他的难处。'}]}
+        cid = self.server.conversations.append(None, '队友没做作业怎么办？', answer)
+        def summarize(messages):
+            source = json.loads(messages[-1]['content'])
+            self.assertEqual(source[0]['speaker'], '你')
+            self.assertEqual(source[1]['speaker'], '孔子')
+            return {'content': json.dumps({'nodes': [
+                {'id': item['id'], 'text': item['text']} for item in source[:5]
+            ]})}
+        client = Mock(side_effect=summarize)
+        self.server.detail_client = client
+        def outline():
+            with self.request('/api/conversations/outline', {'id': cid}, **{'X-Zhongjian-Token': self.server.nonce}) as response:
+                return json.load(response)
+        try:
+            client.assert_not_called()
+            first = outline()
+            self.assertEqual(first['mode'], 'ai')
+            self.assertEqual([node['kind'] for node in first['nodes']], ['question', 'reply'])
+            self.assertEqual(first['nodes'][1]['speaker'], '孔子')
+            self.assertEqual(first, outline())
+            client.assert_called_once()
+            self.server.conversations.append(cid, '那怎么开口？', answer)
+            self.assertEqual(outline()['nodes'][2]['kind'], 'followup')
+            self.assertEqual(client.call_count, 2)
+        finally:
+            self.server.detail_client = None
+
+    def test_conversation_outline_has_offline_excerpt(self):
+        cid = self.server.conversations.append(None, '现在怎么办？', {'cards': [], 'synthesis': '先确认目标。'})
+        with self.request('/api/conversations/outline', {'id': cid}, **{'X-Zhongjian-Token': self.server.nonce}) as response:
+            result = json.load(response)
+        self.assertEqual(result['mode'], 'excerpt')
+        self.assertEqual(result['nodes'][0]['text'], '现在怎么办？')
+
+    def test_staged_portrait_and_intro_appear_only_after_skill_is_reviewed(self):
+        qid = 'Q987654321'
+        who = self.server.rows[0]['person']
+        person = {'person': who, 'description': '测试身份', 'wikidata_id': qid}
+        folder = self.server.collections.path.parent / 'person-profiles' / qid
+        folder.mkdir(parents=True)
+        image = b'\xff\xd8\xffportrait-fixture'
+        name = qid + '.jpg'
+        (folder / name).write_bytes(image)
+        (folder / 'profile.json').write_text(json.dumps({
+            'wikidata_id': qid, 'biography': '这是按人物身份准备的简介。',
+            'portrait': {'url': '/portraits/' + name, 'sha256': hashlib.sha256(image).hexdigest()},
+        }), encoding='utf-8')
+        headers = {'X-Zhongjian-Token': self.server.nonce}
+        with patch('web_server.people_catalog', return_value=[person]), patch('person_skills.load_skills') as load:
+            load.return_value = {}
+            with self.request('/api/agents', **headers) as response:
+                self.assertEqual(json.load(response)['agents'], [])
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.request('/person-portraits/' + name)
+            self.assertEqual(caught.exception.code, 404)
+            caught.exception.close()
+            load.return_value = {who: {}}
+            with self.request('/api/agents', **headers) as response:
+                agent = json.load(response)['agents'][0]
+            self.assertEqual(agent['biography'], '这是按人物身份准备的简介。')
+            self.assertEqual(agent['portrait']['url'], '/person-portraits/' + name)
+            with self.request('/person-portraits/' + name) as response:
+                self.assertEqual(response.read(), image)
 
     def test_unknown_detail_source_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -82,7 +149,8 @@ class WebTests(unittest.TestCase):
             req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/source/details',
                 data=json.dumps({'passage_id':pid,'highlight_start':0,'highlight_end':230}).encode(),
                 headers={'Content-Type':'application/json','X-Zhongjian-Token':server.nonce})
-            with urllib.request.urlopen(req,timeout=5) as response:
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req,timeout=5) as response:
                 result=json.load(response)
             self.assertEqual(result['original_language'],'en')
             self.assertEqual(result['original_focus'],row['text'][:230])

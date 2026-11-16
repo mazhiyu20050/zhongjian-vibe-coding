@@ -141,11 +141,27 @@ def verify_candidates(candidates,query):
         human=any(c.get('mainsnak',{}).get('datavalue',{}).get('value',{}).get('id')=='Q5' for c in entity.get('claims',{}).get('P31',[]))
         if not human:continue
         labels=entity.get('labels',{});descriptions=entity.get('descriptions',{})
+        claims=entity.get('claims',{})
+        def claim_value(key):
+            return next((c['mainsnak']['datavalue']['value'] for c in claims.get(key,[])
+                         if c.get('rank')!='deprecated' and 'datavalue' in c.get('mainsnak',{})),None)
+        def year(key):
+            value=claim_value(key)
+            if not isinstance(value,dict) or value.get('precision',0)<9:return ''
+            match=re.match(r'([+-])(\d{4,6})-',value.get('time',''))
+            if not match:return ''
+            number=int(match[2]);return ('前' if match[1]=='-' else '')+str(number) if number else ''
+        born,died=year('P569'),year('P570')
+        photo=claim_value('P18')
+        article=entity.get('sitelinks',{}).get('zhwiki',{}).get('title','')
         name=next((labels[k]['value'] for k in ('zh-hans','zh','zh-hant','en') if k in labels),candidates[qid].get('label',query))
         names=[name]+[v['value'] for v in labels.values()]+[a['value'] for values in entity.get('aliases',{}).values() for a in values]
         names=list(dict.fromkeys(simplified(n) for n in names if isinstance(n,str) and len(n)<=100))[:24]
-        people.append({'wikidata_id':qid,'person':simplified(name),'description':next((descriptions[k]['value'] for k in ('zh','zh-hans','en') if k in descriptions),''),
+        people.append({'wikidata_id':qid,'person':simplified(name),'description':simplified(next((descriptions[k]['value'] for k in ('zh-hans','zh','zh-hant','en') if k in descriptions),'')),
                        'aliases':names,'identity_url':'https://www.wikidata.org/wiki/'+qid,'verified_human':True,
+                       'lifespan':(born+'–'+died if died else born+'年生') if born else '',
+                       'portrait_file':photo[:250] if isinstance(photo,str) else '',
+                       'zh_article':article[:200] if isinstance(article,str) else '',
                        'verification':'Wikidata P31=Q5','verified_at':int(time.time()),
                        'sitelink_count':len(entity.get('sitelinks',{})),
                        'search_rank':list(candidates).index(qid)})

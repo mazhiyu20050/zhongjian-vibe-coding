@@ -44,7 +44,7 @@
   addFolder.addEventListener('click',async()=>{addFolder.disabled=true;modalError.textContent='请选择本地文件夹…';try{const result=await post('/api/projects/folder',{});if(!result.cancelled){selectionId=result.selection_id;sourceText.textContent=result.path;if(!name.value.trim())name.value=result.name;}modalError.textContent='';}catch(e){modalError.textContent=e.message;}finally{addFolder.disabled=false;}});
   form.addEventListener('submit',async event=>{event.preventDefault();if(!name.value.trim())return;save.disabled=true;
     try{if(renaming){await post('/api/projects/rename',{id:renaming,name:name.value});renaming=null;}
-      else{const p=await post('/api/projects',{name:name.value,selection_id:selectionId});window.currentProjectId=p.id;newConversation(null);}
+      else{if(!canLeaveQuestionQueue())return;const p=await post('/api/projects',{name:name.value,selection_id:selectionId});if(newConversation(null,false,true))window.currentProjectId=p.id;}
       modal.close();name.value='';await refreshHistory();}
     catch(e){modalError.textContent=e.message;}finally{save.disabled=false;}});
   document.addEventListener('zhongjian:project',e=>{window.currentProjectId=e.detail;});
@@ -59,7 +59,7 @@
     const history=await detail(item.id);
     if(busy)return;
     if(history.unread)await post('/api/conversations/manage',{id:item.id,field:'unread',value:false});
-    if(busy)return;
+    if(busy||!canLeaveQuestionQueue())return;
     showConversation(history);if(closeDrawer&&drawer.open)drawer.close();
   }
   async function transcript(item){
@@ -154,7 +154,7 @@
         const more=node('button','···','project-row-action');more.type='button';more.setAttribute('aria-label','项目操作：'+p.name);more.setAttribute('aria-haspopup','menu');
         more.addEventListener('click',event=>{const r=more.getBoundingClientRect();projectMenu({clientX:r.left,clientY:r.bottom,preventDefault:()=>event.preventDefault(),stopPropagation:()=>event.stopPropagation()});});
         const fresh=node('button','✎','project-row-action');fresh.type='button';fresh.title='在项目中新建对话';fresh.setAttribute('aria-label','在项目中新建对话：'+p.name);
-        fresh.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(busy)return;window.currentProjectId=p.id;newConversation(null);drawer.close();});
+        fresh.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(newConversation(null)){window.currentProjectId=p.id;drawer.close();}});
         controls.append(more,fresh);heading.append(controls);
         heading.addEventListener('contextmenu',projectMenu);
         if(p.pinned)heading.classList.add('is-pinned');
@@ -218,19 +218,90 @@
     await refreshHistory();
   }
   async function changeProjectStatus(id,status){await post('/api/projects/status',{id,status});if(window.currentProjectId===id&&status!=='active')window.currentProjectId=null;await refreshHistory();}
-  function newConversation(person=null,preserveDraft=false){
-    if(busy)return;
+  const personBack=node('button','‹ 返回','persona-back');
+  personBack.type='button';personBack.hidden=true;
+  personBack.setAttribute('aria-label','返回上一对话');
+  document.body.append(personBack);
+  let previousView=null;
+  function setPersonBack(state){
+    previousView=state;personBack.hidden=!state;
+  }
+  document.addEventListener('zhongjian:clear-person-back',()=>setPersonBack(null));
+  function savePersonView(){
+    const main=document.querySelector('main'),results=$('results');
+    if(results.hidden||!results.childElementCount)return null;
+    return {conversationId,sessionId,agentPerson,personBranch,personBranchContext,failedTurn,queue:pendingQuestions.slice(),
+      projectId:window.currentProjectId||null,nodes:[...results.childNodes],previousView,
+      hasAnswer:main.classList.contains('has-answer'),hasStarted:main.classList.contains('has-started'),
+      draft:$('question').value,placeholder:$('question').placeholder,scroll:window.scrollY};
+  }
+  function keepPersonView(saved){
+    if(!saved)return;
+    const original=node('details',undefined,'persona-origin');
+    original.open=true;
+    original.append(node('summary','原对话'),...saved.nodes);
+    $('results').append(original);$('results').hidden=false;
+    document.querySelector('main').classList.add('has-answer','has-started');
+    setPersonBack(saved);
+  }
+  personBack.addEventListener('click',()=>{
+    const saved=previousView;if(!saved||!canLeaveQuestionQueue())return;
+    cancelQueryView();
+    ({conversationId,sessionId,agentPerson,personBranch,personBranchContext,failedTurn}=saved);
+    setQuestionQueue(saved.queue);
+    window.currentProjectId=saved.projectId;
+    document.dispatchEvent(new CustomEvent('zhongjian:project',{detail:saved.projectId}));
+    const main=document.querySelector('main');
+    main.classList.toggle('has-answer',saved.hasAnswer);main.classList.toggle('has-started',saved.hasStarted);
+    $('results').replaceChildren(...saved.nodes);$('results').hidden=false;
+    $('question').value=saved.draft;$('question').placeholder=saved.placeholder;resizeQuestion();
+    setPersonBack(saved.previousView);
+    document.dispatchEvent(new Event('zhongjian:agent'));
+    document.dispatchEvent(new Event('zhongjian:outline-change'));
+    $('question').focus({preventScroll:true});
+    requestAnimationFrame(()=>window.scrollTo({top:saved.scroll,behavior:'instant'}));
+    refreshHistory();
+  });
+  function newConversation(person=null,preserveDraft=false,queueHandled=false){
+    if(busy||(!queueHandled&&!canLeaveQuestionQueue()))return false;
     const draft=preserveDraft?$('question').value:'';
+    failedTurn=null;setPersonBack(null);
+    setQuestionQueue();
     agentPerson=person;
+    personBranchContext='';
+    personBranch=false;
     sessionId=null;conversationId=null;
+    document.dispatchEvent(new Event('zhongjian:outline-change'));
     document.querySelector('main').classList.remove('has-answer','has-started');
     $('results').replaceChildren();$('results').hidden=true;$('thinking').hidden=true;
     $('query-form').hidden=false;$('question').value=draft;$('question').placeholder=person?'和'+person+'聊聊':'说说你的困惑';resizeQuestion();$('question').focus();
     document.dispatchEvent(new Event('zhongjian:agent'));
     refreshHistory();
+    return true;
   }
-  document.getElementById('new-chat').addEventListener('click',()=>{window.currentProjectId=null;newConversation(agentPerson);if(drawer.open)drawer.close();document.dispatchEvent(new Event('zhongjian:hide-agents'));});
-  document.addEventListener('zhongjian:choose-agent',event=>newConversation(event.detail||null,true));
+  document.getElementById('new-chat').addEventListener('click',()=>{if(!newConversation(agentPerson))return;window.currentProjectId=null;if(drawer.open)drawer.close();document.dispatchEvent(new Event('zhongjian:hide-agents'));});
+  document.addEventListener('zhongjian:choose-agent',event=>{
+    if(busy)return;
+    const choice=event.detail;
+    if(!choice||typeof choice==='string'){
+      if(choice&&choice===agentPerson)return;
+      const saved=choice?savePersonView():null;
+      if(newConversation(choice||null,true,Boolean(saved)))keepPersonView(saved);return;
+    }
+    if(typeof choice.person!=='string'||typeof choice.question!=='string')return;
+    const saved=savePersonView();
+    if(!newConversation(choice.person,false,Boolean(saved)))return;
+    keepPersonView(saved);
+    document.dispatchEvent(new Event('zhongjian:hide-agents'));
+    const seed=choice.question.trim();
+    const context=typeof choice.priorContext==='string'?choice.priorContext.trim():'';
+    personBranchContext=context.endsWith('\n'+seed)?context.slice(0,-(seed.length+1)).trim().slice(-2000)
+      : context&&context!==seed?context.slice(-2000):'';
+    personBranch=true;
+    $('question').value=seed;
+    resizeQuestion();
+    if(seed)$('query-form').requestSubmit();
+  });
   document.addEventListener('zhongjian:history',refreshHistory);
   document.addEventListener('zhongjian:session-ready',()=>{
     const id=new URLSearchParams(location.search).get('conversation');

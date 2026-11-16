@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import tempfile
@@ -23,6 +24,8 @@ from recommendations import RecommendationStore, people_catalog
 from people_discovery import search_people, discover_skill
 from discovery_jobs import DiscoveryJobs
 from conversations import ConversationStore
+from conversation_outline import outline_events, outline
+from person_profiles import read_profile, portrait_bytes, stage_profile
 
 ROOT = Path(__file__).resolve().parent
 
@@ -43,6 +46,9 @@ class LocalServer(ThreadingHTTPServer):
         self.agent = None
         self.detail_client = None
         self.detail_cache = {}
+        self.outline_cache = {}
+        self.outline_lock = threading.Lock()
+        self.outline_pending = set()
         self.slots = threading.BoundedSemaphore(2)
         self.recommendations = RecommendationStore(self.collections.path)
         self.conversations = ConversationStore(self.collections.path)
@@ -58,6 +64,8 @@ class LocalServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    allow_fixed_person_preview = False
+
     def log_message(self, *args):
         pass  # Do not log personal queries or request bodies.
 
@@ -103,6 +111,8 @@ class Handler(BaseHTTPRequestHandler):
                   '/shell.css': ('shell.css', 'text/css; charset=utf-8'),
                   '/agents.js': ('agents.js', 'text/javascript; charset=utf-8'),
                   '/agents.css': ('agents.css', 'text/css; charset=utf-8'),
+                  '/outline.js': ('outline.js', 'text/javascript; charset=utf-8'),
+                  '/outline.css': ('outline.css', 'text/css; charset=utf-8'),
                   '/portrait-credits': ('portraits/credits.html', 'text/html; charset=utf-8'),
                   '/people.css': ('people.css', 'text/css; charset=utf-8')}
         if parsed.path in assets:
@@ -116,13 +126,29 @@ class Handler(BaseHTTPRequestHandler):
             if not path.is_file():return self.send(404,{'error':'not_found'})
             mime='image/png' if name.endswith('.png') else 'image/webp' if name.endswith('.webp') else 'image/jpeg'
             return self.send(200,path.read_bytes(),mime)
+        if parsed.path.startswith('/person-portraits/'):
+            name=parsed.path[len('/person-portraits/'):]
+            match=re.fullmatch(r'(Q[1-9][0-9]{0,12})\.(jpg|png|webp)',name)
+            if not match or not any(p['wikidata_id']==match[1] for p in self.active_people()):
+                return self.send(404,{'error':'not_found'})
+            raw=portrait_bytes(self.server.collections.path.parent,name)
+            if raw is None:return self.send(404,{'error':'not_found'})
+            return self.send(200,raw,{'jpg':'image/jpeg','png':'image/png','webp':'image/webp'}[match[2]])
         if parsed.path=='/api/agents':
             if not self.authorized():return
-            from person_skills import load_skills
-            skills=load_skills();available={r['person'] for r in self.server.rows}
             manifest=ROOT/'web'/'portraits'/'manifest.json'
             portraits=json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else {}
-            return self.send(200,{'agents':[{**p,'portrait':portraits.get(p['person'])} for p in people_catalog() if p['person'] in skills and p['person'] in available]})
+            agents=[]
+            for p in self.active_people():
+                profile=read_profile(self.server.collections.path.parent,p['wikidata_id'])
+                # Curated text and image beat a freshly fetched candidate.
+                bio=({k:v for k,v in profile.items() if v and k!='portrait'}
+                     if not p.get('biography') else {})
+                bundled=portraits.get(p['person'])
+                if bundled and Path(bundled.get('url','')).stem!=p['wikidata_id']:
+                    bundled=None
+                agents.append({**p,**bio,'portrait':bundled or profile.get('portrait')})
+            return self.send(200,{'agents':agents})
         if parsed.path == '/api/session':
             return self.send(200, {'token': self.server.nonce, 'ready': self.server.engine is not None,
                                   'person': '、'.join(sorted({r['person'] for r in self.server.rows})), 'records': len(self.server.rows),
@@ -192,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, {'error': 'invalid_request_body'})
         if not self.authorized():
             return
-        if self.path not in ('/api/query', '/api/source/details', '/api/collections/add', '/api/collections/cancel', '/api/session/reset', '/api/preferences', '/api/people/discover', '/api/people/skill', '/api/people/jobs', '/api/people/jobs/select', '/api/projects', '/api/conversations/move', '/api/projects/rename', '/api/projects/reveal', '/api/conversations/pin', '/api/projects/folder', '/api/projects/status','/api/conversations/manage','/api/conversations/branch','/api/conversations/window','/api/projects/manage'):
+        if self.path not in ('/api/query', '/api/source/details', '/api/conversations/outline', '/api/collections/add', '/api/collections/cancel', '/api/session/reset', '/api/preferences', '/api/people/discover', '/api/people/skill', '/api/people/jobs', '/api/people/jobs/select', '/api/projects', '/api/conversations/move', '/api/projects/rename', '/api/projects/reveal', '/api/conversations/pin', '/api/projects/folder', '/api/projects/status','/api/conversations/manage','/api/conversations/branch','/api/conversations/window','/api/projects/manage'):
             return self.send(404, {'error': 'not_found'})
         if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
             return self.send(415, {'error': 'json_required'})
@@ -200,6 +226,8 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw_body)
             if not isinstance(data, dict):
                 return self.send(400, {'error': 'invalid_body'})
+            if self.path=='/api/conversations/outline':
+                return self.conversation_outline(data)
             if self.path=='/api/conversations/window':
                 opener=getattr(self.server,'open_conversation_window',None)
                 cid=data.get('id')
@@ -282,7 +310,11 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send(200,{'people':items,'note':'人物存在不表示一定有可用Skill；请选择正确的同名人物。'})
                     person=self.server.discovered_people.get(data.get('wikidata_id'))
                     if not person:return self.send(400,{'message':'请先联网检验人物并选择身份。'})
-                    result=discover_skill(person,self.server.collections.path.parent/'skills-incoming')
+                    storage=self.server.collections.path.parent
+                    result=discover_skill(person,storage/'skills-incoming')
+                    if result['status']=='downloaded_pending_review':
+                        try:result={**result,'profile':stage_profile(person,storage)}
+                        except (OSError,ValueError):pass
                     return self.send(200,result)
                 except ValueError:
                     return self.send(400,{'message':'请输入1至80字的人名。'})
@@ -314,11 +346,16 @@ class Handler(BaseHTTPRequestHandler):
                 agent_person=conversation.get('agent_person')
             if agent_person is not None and (not isinstance(agent_person,str) or agent_person not in {p['person'] for p in people_catalog()}):
                 return self.send(400,{'message':'请选择已接入的人物。'})
+            branch_context=data.get('branch_context','')
+            if not isinstance(branch_context,str) or len(branch_context)>2000:
+                return self.send(400,{'message':'原对话背景过长或格式有误。'})
+            branch_entry=bool(not cid and agent_person and data.get('branch_entry') is True)
+            if not branch_entry:branch_context=''
         except (ValueError, UnicodeError):
             return self.send(400, {'error': 'invalid_json'})
         if self.server.engine is None:
             return self.send(503, {'error': 'key_not_configured', 'message': '后台尚未加载密钥，请通过启动脚本打开。'})
-        if agent_person and not self.server.agent:
+        if agent_person and not self.server.agent and not self.allow_fixed_person_preview:
             return self.send(503,{'message':'专属人物服务尚未就绪。'})
         if not self.server.slots.acquire(blocking=False):
             return self.send(429, {'error': 'busy', 'message': '当前查询较多，请稍后再试。'})
@@ -326,10 +363,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.server.agent:
                 sid=conversation.get('session_id') if conversation else data.get('session_id')
                 if conversation:sid=self.server.agent.resume_history(sid,conversation['turns'],agent_person)
-                answer = self.server.agent.ask(question.strip(), sid, agent_person=agent_person) if agent_person else self.server.agent.ask(question.strip(), sid)
+                person_options={'branch_entry':True,'branch_context':branch_context} if branch_entry else {}
+                answer = self.server.agent.ask(question.strip(), sid, agent_person=agent_person, **person_options) if agent_person else self.server.agent.ask(question.strip(), sid)
                 answer={**answer,'mode':'live_agent'}
             else:
-                result = self.server.engine(question.strip())
+                result = self.answer_from_engine(question.strip(),agent_person)
                 answer={'result':result,'mode':'live'}
             try:
                 answer['conversation_id']=self.server.conversations.append(cid,question.strip(),answer['result'],answer.get('session_id'),agent_person,data.get('project_id'))
@@ -349,6 +387,52 @@ class Handler(BaseHTTPRequestHandler):
             self.send(500, {'error': 'internal_error', 'message': '本次查询异常，个人输入未写入日志。'})
         finally:
             self.server.slots.release()
+
+    def answer_from_engine(self, question, agent_person):
+        return self.server.engine(question)
+
+    def active_people(self):
+        from person_skills import load_skills
+        skills=load_skills()
+        available={r['person'] for r in self.server.rows}
+        return [p for p in people_catalog() if p['person'] in skills and p['person'] in available]
+
+    def conversation_outline(self, data):
+        conversation = self.server.conversations.get(data.get('id'))
+        if not conversation:
+            return self.send(404, {'message': '这段对话还没有保存的内容。'})
+        events = outline_events(conversation['turns'])
+        client = self.server.detail_client
+        if not client or not events:
+            return self.send(200, outline(events))
+        cache_key = (conversation['id'], len(conversation['turns']), id(client))
+        with self.server.outline_lock:
+            cached = self.server.outline_cache.get(cache_key)
+            pending = cache_key in self.server.outline_pending
+            if cached is None and not pending:
+                self.server.outline_pending.add(cache_key)
+        if cached is not None:
+            return self.send(200, cached)
+        if pending:
+            return self.send(429, {'message': '正在整理这段对话，请稍后重试。'})
+        try:
+            if not self.server.slots.acquire(blocking=False):
+                return self.send(429, {'message': '服务正在回答其他问题，请稍后重试。'})
+            try:
+                result = outline(events, client)
+            except Exception:
+                result = outline(events)
+            finally:
+                self.server.slots.release()
+            with self.server.outline_lock:
+                if result['mode'] == 'ai' and self.server.detail_client is client:
+                    if len(self.server.outline_cache) >= 32:
+                        self.server.outline_cache.pop(next(iter(self.server.outline_cache)))
+                    self.server.outline_cache[cache_key] = result
+            return self.send(200, result)
+        finally:
+            with self.server.outline_lock:
+                self.server.outline_pending.discard(cache_key)
 
     def source_details(self, data):
         pid = data.get('passage_id')
@@ -434,6 +518,8 @@ def configure_server(server, key, model, storage):
     server.agent = agent
     server.model_name = model if key else None
     server.detail_cache.clear()
+    with server.outline_lock:
+        server.outline_cache.clear()
 
 
 def main():

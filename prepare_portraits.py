@@ -38,21 +38,25 @@ def fetch(url,limit=4000000):
 def clean(value):return html.unescape(re.sub('<[^>]*>','',value or '')).strip()[:2000]
 
 
-def prepare(person):
-    qid=person['wikidata_id'];name=person['person'];cache=OUT/(qid+'.source.json')
+def prepare(person, out=None):
+    out=OUT if out is None else Path(out)
+    qid=person['wikidata_id'];name=person['person'];cache=out/(qid+'.source.json')
+    if not re.fullmatch(r'Q[1-9][0-9]{0,12}',qid):raise ValueError('invalid_portrait_id')
     if cache.exists():
         metadata=json.loads(cache.read_text(encoding='utf-8'))
-        asset=OUT/Path(metadata['url']).name
+        asset=out/Path(metadata['url']).name
         if asset.exists() and hashlib.sha256(asset.read_bytes()).hexdigest()==metadata['sha256']:return name,metadata
-    entity_cache=ROOT/'.local'/'portrait-entities.json'
-    entities=json.loads(entity_cache.read_text(encoding='utf-8')) if entity_cache.exists() else {}
-    if qid not in entities:
-        query=urllib.parse.urlencode({'action':'wbgetentities','ids':qid,'props':'claims','format':'json'})
-        entity=public_json('https://www.wikidata.org/w/api.php?'+query,maximum=4000000)['entities'][qid]
-    else:entity=entities[qid]
-    photos=entity.get('claims',{}).get('P18',[])
-    if not photos:raise ValueError('portrait_not_available: '+name)
-    filename=photos[0]['mainsnak']['datavalue']['value']
+    filename=person.get('portrait_file') if out!=OUT else None
+    if not filename:
+        entity_cache=ROOT/'.local'/'portrait-entities.json'
+        entities=json.loads(entity_cache.read_text(encoding='utf-8')) if entity_cache.exists() else {}
+        if qid not in entities:
+            query=urllib.parse.urlencode({'action':'wbgetentities','ids':qid,'props':'claims','format':'json'})
+            entity=public_json('https://www.wikidata.org/w/api.php?'+query,maximum=4000000)['entities'][qid]
+        else:entity=entities[qid]
+        photos=entity.get('claims',{}).get('P18',[])
+        if not photos:raise ValueError('portrait_not_available: '+name)
+        filename=photos[0]['mainsnak']['datavalue']['value']
     query=urllib.parse.urlencode({'action':'query','titles':'File:'+filename,'prop':'imageinfo',
             'iiprop':'url|extmetadata','iiurlwidth':320,'format':'json'})
     try:data=json.loads(fetch('https://en.wikipedia.org/w/api.php?'+query))
@@ -60,12 +64,14 @@ def prepare(person):
     page=next(iter(data['query']['pages'].values()));info=page['imageinfo'][0];ext=info['extmetadata']
     license=clean(ext.get('LicenseShortName',{}).get('value',''))
     if not re.search(r'CC |CC0|public domain|PD|free use',license,re.I):raise ValueError('unreviewed_portrait_license: '+license)
+    if out!=OUT and not re.fullmatch(r'(?:CC BY(?:-SA)? [1-4]\.0(?: [A-Za-z-]{2,12})?|CC0(?: 1\.0)?|Public domain|PD)',license,re.I):
+        raise ValueError('unreviewed_portrait_license')
     image_url=info.get('thumburl') or info['url'];raw=fetch(image_url)
     if raw.startswith(b'\xff\xd8\xff'):suffix='.jpg'
     elif raw.startswith(b'\x89PNG\r\n\x1a\n'):suffix='.png'
     elif raw.startswith(b'RIFF') and raw[8:12]==b'WEBP':suffix='.webp'
     else:raise ValueError('portrait_format_not_supported')
-    path=OUT/(qid+suffix);path.write_bytes(raw)
+    path=out/(qid+suffix);path.write_bytes(raw)
     metadata={'url':'/portraits/'+path.name,'source':info['descriptionurl'],'file':filename,
               'artist':clean(ext.get('Artist',{}).get('value','')),'license':license,
               'license_url':ext.get('LicenseUrl',{}).get('value',''),'sha256':hashlib.sha256(raw).hexdigest(),

@@ -10,6 +10,7 @@ from collections_store import CollectionStore
 from conversations import ConversationStore
 from corpus import load_library
 from query import make_passages,QueryStageError
+from presentation import with_display
 from thinkers import build_profiles
 from test_agent import tool,final
 
@@ -25,6 +26,9 @@ class PersonAgentTests(unittest.TestCase):
             calls.append(messages)
             if len(calls)==1:
                 self.assertIn('专属人物对话',messages[0]['content'])
+                self.assertIn('专属人物长答',messages[0]['content'])
+                self.assertIn('今晚要交小组作业',messages[0]['content'])
+                self.assertNotIn('save_favorite',{tool['function']['name'] for tool in options['tools']})
                 return tool('select_thinkers',{'question_focus':'面对困惑作出行动','user_facts':[],
                     'selections':[{'person':person,'concept_id':self.profiles[person]['concepts'][0]['id'],'reason':'从此人的框架审视问题'}]})
             if len(calls)==2:return tool('search_sources',{'terms':['行动','判断']})
@@ -35,7 +39,8 @@ class PersonAgentTests(unittest.TestCase):
                            'explanation':'你先检查眼前的判断，再做一件具体的事，不必拿他人的评价代替自己的省察。'}])
         with tempfile.TemporaryDirectory() as tmp:
             service=AgentService(self.rows,CollectionStore(Path(tmp)/'db.sqlite3'),model,skill_routing=True)
-            response=service.ask('毛泽东会怎样看待我的困惑？',agent_person=person)
+            response=service.ask('毛泽东会怎样看待我的困惑？',agent_person=person,
+                                 branch_entry=True,branch_context='今晚要交小组作业。')
             self.assertEqual([c['person'] for c in response['result']['cards']],[person])
             self.assertEqual(service.session(response['session_id']).agent_person,person)
             with self.assertRaises(QueryStageError):service.ask('继续',response['session_id'],agent_person='毛泽东')
@@ -48,6 +53,13 @@ class PersonAgentTests(unittest.TestCase):
             service=AgentService(self.rows,CollectionStore(path),Mock(),skill_routing=True)
             sid=service.resume_history(history['session_id'],history['turns'],history['agent_person'])
             self.assertEqual(service.session(sid).agent_person,'王阳明')
+
+    def test_single_person_analysis_is_not_cut_to_a_brief_summary(self):
+        analysis='先把心里的顾虑和已经发生的事分开。\n别等到一点也不怕再动身。\n在现场先做一步，回来按实情复盘。'
+        result={'agent_person':'王阳明','synthesis':analysis,'cards':[]}
+        self.assertEqual(with_display({'result':result})['result']['display_reply'],analysis)
+        result.pop('agent_person')
+        self.assertNotEqual(with_display({'result':result})['result']['display_reply'],analysis)
 
     def test_existing_database_is_migrated_without_losing_history(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,6 +98,14 @@ class PersonAgentTests(unittest.TestCase):
             self.assertTrue(item['source'].startswith('https://commons.wikimedia.org/'))
             self.assertTrue(item['license'])
             self.assertEqual(hashlib.sha256((folder/Path(item['url']).name).read_bytes()).hexdigest(),item['sha256'])
+
+    def test_every_catalog_person_has_a_short_biography(self):
+        from recommendations import people_catalog
+        for person in people_catalog():
+            with self.subTest(person=person['person']):
+                self.assertGreater(len(person['biography']), 35)
+                self.assertNotEqual(person['biography'], person['description'])
+                self.assertTrue(person.get('biography_url', person['identity_url']).startswith('https://'))
 
 
 if __name__=='__main__':unittest.main()

@@ -122,6 +122,7 @@ def with_display(value):
         return value
     result = value['result']
     return {**value, 'result': {**result,
-        'display_reply': (simplified(result.get('synthesis', '')) if result.get('pending_confirmation') else
+        'display_reply': (simplified(result.get('synthesis', '')) if result.get('pending_confirmation') or
+                          (result.get('agent_person') and not result.get('clarification', {}).get('awaiting_answer')) else
                           brief_reply(result.get('synthesis', ''), result.get('clarification', {}).get('awaiting_answer', False))),
         'cards': [{**card, 'display': display_card(card)} for card in result.get('cards', [])]}}

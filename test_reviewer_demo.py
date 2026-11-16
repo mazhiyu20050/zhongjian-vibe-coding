@@ -6,7 +6,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from reviewer_demo import DEMO_QUESTION, create_demo
+from reviewer_demo import DEMO_FOLLOWUP, DEMO_QUESTION, create_demo
 
 
 class ReviewerDemoTests(unittest.TestCase):
@@ -63,6 +63,37 @@ class ReviewerDemoTests(unittest.TestCase):
             })
             self.assertIn(card["quote"], detail["reading"])
         self.assertEqual(self.call("/api/conversations?id=" + answer["conversation_id"])["turns"][0]["question"], DEMO_QUESTION)
+
+    def test_agent_biographies_are_in_the_offline_catalog(self):
+        people = {person["person"]: person for person in self.call("/api/agents")["agents"]}
+        self.assertIn("王阳明", people)
+        self.assertIn("老子", people)
+        for person in people.values():
+            with self.subTest(person=person["person"]):
+                self.assertTrue(person["biography"])
+                self.assertNotEqual(person["description"], person["biography"])
+                self.assertTrue(person["identity_url"].startswith("https://"))
+        self.assertIn("1472", people["王阳明"]["lifespan"])
+        self.assertIn("争议", people["老子"]["biography"])
+        self.assertNotIn("lifespan", people["老子"])
+
+    def test_preview_person_followup_and_consensus_use_separate_history(self):
+        original = self.call("/api/query", {"question": DEMO_QUESTION})
+        parent = original["conversation_id"]
+        summary = self.call("/api/conversations/outline", {"id": parent})
+        self.assertEqual(summary["mode"], "reviewer_demo")
+        self.assertEqual(len(summary["consensus"]["speakers"]), 3)
+        selected = self.call("/api/query", {"question": DEMO_QUESTION, "agent_person": "孔子",
+                                            "branch_entry": True})
+        child = selected["conversation_id"]
+        self.assertNotEqual(child, parent)
+        self.assertEqual([card["person"] for card in selected["result"]["cards"]], ["孔子"])
+        self.assertIn("\n", selected["result"]["display_reply"])
+        followup = self.call("/api/query", {"question": DEMO_FOLLOWUP, "conversation_id": child})
+        self.assertEqual(followup["conversation_id"], child)
+        self.assertEqual(len(self.call("/api/conversations?id=" + child)["turns"]), 2)
+        self.assertEqual(len(self.call("/api/conversations?id=" + parent)["turns"]), 1)
+        self.assertIsNone(self.server.detail_client)
 
     def test_unsupported_queries_and_external_work_are_blocked(self):
         for path, payload, code in [
