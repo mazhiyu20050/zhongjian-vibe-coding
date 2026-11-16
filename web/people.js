@@ -57,6 +57,9 @@
         const retry=text('button','重试');retry.type='button';retry.addEventListener('click',()=>start(job.query,true));row.append(retry);
       }
       if(job.result?.repository){const source=text('a','Skill 来源 ↗');source.href=job.result.repository;source.target='_blank';source.rel='noopener';row.append(source);}
+      if(job.result?.profile?.biography||job.result?.profile?.portrait_ready){
+        row.append(text('small',job.result.profile.portrait_ready?'肖像已准备 · 审核接入后显示':'简介已准备 · 肖像暂缺'));
+      }
       area.append(row);
     }
   }
@@ -86,5 +89,6 @@
   el('people-search').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();start(el('people-search').value.trim());}});
   el('people-form').addEventListener('submit',async e=>{e.preventDefault();el('people-save').disabled=true;try{await api('/api/preferences',{selected:[...selected]});renderJobs();dialog.close();}catch(error){el('people-status').textContent=error.message;}finally{el('people-save').disabled=false;}});
   el('people-discover').addEventListener('click',()=>start(el('people-search').value.trim()));
+  document.addEventListener('zhongjian:people-job-started',refresh);
   refresh();
 })();
