@@ -1,26 +1,36 @@
 const {test}=require('node:test'), assert=require('node:assert/strict'), vm=require('node:vm'), fs=require('node:fs');
 function setup(){
-  function element(){return {children:[],handlers:{},style:{},classList:{add(){}},value:'',append(...c){this.children.push(...c)},replaceChildren(...c){this.children=c},setAttribute(){},removeAttribute(){},addEventListener(k,f){this.handlers[k]=f},scrollIntoView(){this.scrolled=true},focus(){this.focused=true},remove(){this.removed=true},contains(target){return target===this||this.children.some(child=>child.contains?.(target))},getBoundingClientRect(){return {left:50,bottom:80,width:180,height:40}}}}
+  function element(tag){return {tag,children:[],handlers:{},style:{setProperty(){}},classList:{add(){}},value:'',
+    get isConnected(){return Boolean(this.parentNode)},before(){},
+    append(...c){for(const child of c){if(child.parentNode)child.parentNode.children=child.parentNode.children.filter(item=>item!==child);child.parentNode=this;this.children.push(child)}},
+    replaceChildren(...c){this.children.forEach(child=>{child.parentNode=null});this.children=[];this.append(...c)},
+    querySelector(selector){return this.children.find(child=>selector.startsWith('.')?child.className===selector.slice(1):child.tag===selector)},
+    setAttribute(){},removeAttribute(){},addEventListener(k,f){this.handlers[k]=f},scrollIntoView(){this.scrolled=true},focus(){this.focused=true},remove(){this.removed=true},contains(target){return target===this||this.children.some(child=>child.contains?.(target))},getBoundingClientRect(){return {left:50,bottom:80,width:180,height:40}}}}
   const nodes=new Map(), $=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id)};
   let pending;const body=element(), events=[], handlers={};
-  const ctx=vm.createContext({AbortController,document:{getElementById:$,createElement:element,querySelector:()=>element(),body,dispatchEvent(e){events.push(e)},addEventListener(k,f){handlers[k]=f}},window:{innerWidth:300,innerHeight:200,addEventListener(){},matchMedia:()=>({matches:true})},Event:class{},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail}},fetch:url=>url==='/api/session'?Promise.resolve({ok:true,json:async()=>({ready:true})}):new Promise(r=>{pending=r})});
+  const ctx=vm.createContext({AbortController,ResizeObserver:class{observe(){}},document:{getElementById:$,createElement:element,querySelector:()=>element(),body,dispatchEvent(e){events.push(e)},addEventListener(k,f){handlers[k]=f}},window:{innerWidth:300,innerHeight:200,addEventListener(){},matchMedia:()=>({matches:true})},Event:class{},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail}},fetch:url=>url==='/api/session'?Promise.resolve({ok:true,json:async()=>({ready:true})}):new Promise(r=>{pending=r})});
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'web/app.js'),'utf8'),ctx);
-  return {$,ctx,body,events,handlers,send(q){$('question').value=q;return $('query-form').handlers.submit({preventDefault(){}})},finish(ok){pending({ok,json:async()=>ok?{result:{cards:[]}}:{message:'测试错误'}})}};
+  vm.runInContext('serviceReady=true',ctx);
+  return {$,ctx,body,events,handlers,send(q){$('question').value=q;return $('query-form').handlers.submit({preventDefault(){}})},finish(ok){pending({ok,json:async()=>ok?{result:{cards:[]}}:{message:'测试错误'}});return new Promise(setImmediate)}};
 }
 test('questions show immediately; later replies and failures preserve prior turns',async()=>{
   const f=setup();const r=f.$('results');
   let request=f.send('第一问');
   assert.equal(r.children[0]?.children[0]?.textContent,'第一问');
-  f.finish(true);await request;
+  await f.finish(true);await request;
   const first=r.children[0];
   request=f.send('第二问');assert.equal(r.children[0],first);
   assert.equal(r.children[1]?.children[0]?.textContent,'第二问');
   r.children[1].scrolled=false;
-  f.finish(false);await request;
+  await f.finish(false);await request;
   assert.equal(r.children.length,2);assert.equal(r.children[0],first);
-  assert.equal(r.children[1].children[1].children[0].textContent,'测试错误');
+  const failure=r.children[1].children[1].children[0];
+  assert.equal(failure.children[0].textContent,'测试错误');
+  assert.equal(failure.children[1].textContent,'刷新重试');
   assert.equal(r.children[1].scrolled,false);
   assert.equal(f.$('question').value,'第二问');
+  failure.children[1].handlers.click();await f.finish(true);
+  assert.equal(r.children.length,2);assert.equal(r.children[0],first);
 });
 test('reopening a saved conversation renders the same turn layout',()=>{
   const f=setup();
@@ -34,7 +44,7 @@ test('right-clicking a viewpoint opens a character-specific chat menu instead of
   const f=setup();
   vm.runInContext("render({cards:[{display:{person:'苏轼',excerpt:'原文'}}]},'提问',$('results'))",f.ctx);
   const card=f.$('results').children.find(el=>el.className==='cards-grid').children[0], summary=card.children[0];
-  assert.equal(summary.children[0].children.length,1);
+  assert.equal(summary.children[0].children[1].textContent,'详读原文');
   let prevented=false;
   card.handlers.contextmenu({clientX:299,clientY:199,preventDefault(){prevented=true}});
   assert.equal(prevented,true);
@@ -50,7 +60,8 @@ test('right-clicking a viewpoint opens a character-specific chat menu instead of
   menu=f.body.children.at(-1);action=menu.children[0];action.handlers.click();
   assert.equal(menu.removed,true);
   assert.equal(f.events.at(-1).type,'zhongjian:choose-agent');
-  assert.equal(f.events.at(-1).detail,'苏轼');
+  assert.equal(f.events.at(-1).detail.person,'苏轼');
+  assert.equal(f.events.at(-1).detail.question,'提问');
 });
 
 

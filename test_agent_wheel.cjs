@@ -2,7 +2,7 @@ const {test}=require('node:test'), assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs'), vm=require('node:vm');
 function setup(){
  const elements=new Map();
- function el(id){const h={}, attrs={}, classes=new Set();return {id,attrs,children:[],style:{setProperty(){}},dataset:{},append(...c){this.children.push(...c)},replaceChildren(){this.children=[]},setAttribute(k,v){attrs[k]=v},querySelectorAll(){return []},classList:{add:k=>classes.add(k),remove:k=>classes.delete(k),contains:k=>classes.has(k),toggle(k,on){on?classes.add(k):classes.delete(k)}},addEventListener(k,f){(h[k]??=[]).push(f)},async fire(k,e={}){for(const f of h[k]??[])await f(e)}}}
+ function el(id){const h={}, attrs={}, classes=new Set();return {id,attrs,children:[],value:'',hidden:id==='agent-search-form',style:{setProperty(){}},dataset:{},append(...c){this.children.push(...c)},after(){},contains(target){return target===this||this.children.includes(target)},replaceChildren(){this.children=[]},setAttribute(k,v){attrs[k]=v},hasAttribute(k){return k in attrs},querySelector(){return el()},querySelectorAll(){return []},classList:{add:k=>classes.add(k),remove:k=>classes.delete(k),contains:k=>classes.has(k),toggle(k,on){on?classes.add(k):classes.delete(k)}},addEventListener(k,f){(h[k]??=[]).push(f)},async fire(k,e={}){for(const f of h[k]??[])await f(e)}}}
  function $(id){if(!elements.has(id))elements.set(id,el(id));return elements.get(id)}
  const doc=el('document');doc.body=el('body');doc.createElement=()=>el();doc.querySelector=()=>el();doc.dispatchEvent=()=>{};
  const w=el('window');w.innerWidth=1400;w.matchMedia=()=>({matches:true});
