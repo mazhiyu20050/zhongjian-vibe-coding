@@ -1,10 +1,10 @@
-"""Loopback-only reviewer preview: fixed commentary and real local source passages."""
+"""Offline contest preview: fixed commentary and three classical excerpts."""
 import argparse
 from html import escape
 import json
 from urllib.parse import urlparse
 
-from corpus import load_library
+from recommendations import people_catalog
 from query import QueryStageError
 from web_server import Handler, LocalServer, ROOT
 from conversation_outline import outline, outline_events
@@ -16,9 +16,37 @@ SAMPLE = (
      "先弄清具体卡在哪里。与其在聊天里争谁更负责，不如请队友一起完成一小段任务，看看是缺材料、缺方法，还是赶不上时间。"),
     ("confucius-0016", "不患人之不己知，患不知人也", "先弄清对方情况",
      "暂时别把延期解释成不上心。单独问对方进度和困难，把事实问清后，再谈哪一部分需要换人。"),
-    ("laozi-0063", "天下難事，必作于易，天下大事，必作于細", "把交付缩成小一步",
+    ("laozi-0063", "天下難事必作於易，天下大事必作於細", "把交付缩成小一步",
      "别一下子接手整份任务。先把下一次交付缩成一个能检查的小成果；到点仍没进展，再把关键部分重新分配。"),
 )
+
+# Public-review fixture: three short excerpts from classical works.
+# The book/section labels are bibliographic, and the linked pages are
+# verification references. No website snapshot, translation or portrait
+# is copied. The explanations above are original fixed demo content.
+EXCERPTS = (
+    ("wym-8842abc3c1261fb5", "王阳明", "传习录", "卷上", "陆澄录", "第23则",
+     "人須在事上磨，方立得住，方能靜亦定，動亦定。",
+     "https://zh.wikisource.org/wiki/傳習錄/卷上"),
+    ("confucius-0016", "孔子", "论语", "", "学而第一", "第16章",
+     "子曰：不患人之不己知，患不知人也。",
+     "https://zh.wikisource.org/wiki/論語/學而第一"),
+    ("laozi-0063", "老子", "道德经（王弼本）", "", "第六十三章", "",
+     "天下難事必作於易，天下大事必作於細。",
+     "https://zh.wikisource.org/wiki/道德經_(王弼本)#六十三章"),
+)
+
+
+def demo_rows():
+    return [
+        {"id": source_id, "kind": "source", "person": person, "work": work,
+         "volume": volume, "section": section, "entry": entry, "text": text,
+         "language": "zh", "source_url": url, "speaker_note": "古籍短引",
+         "quality_warning": ""}
+        for source_id, person, work, volume, section, entry, text, url in EXCERPTS
+    ]
+
+
 NEXT_STEP = "今天先问对方卡在哪里，并约定今晚交一段可检查的草稿；若到点仍未收到，只补上影响整体交付的部分。"
 PERSON_REPLIES = {
     "王阳明": ("别等到你心里完全有把握才开口。先和队友一起做十分钟，看看是材料不齐、方法不清，还是时间不够。"
@@ -52,7 +80,7 @@ class ReviewerHandler(Handler):
             html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
             html = html.replace("</head>", '<link rel="stylesheet" href="/reviewer.css"></head>')
             html = html.replace("<body>", '<body><aside id="reviewer-notice"><strong>离线评审演示</strong>'
-                                ' · 固定示例，非实时生成 · 只在本机临时保存<br>示例问题：'
+                                ' · 固定示例，非实时生成 · 仅附三条古籍短引 · 只在本机临时保存<br>示例问题：'
                                 + escape(DEMO_QUESTION) + '</aside>', 1)
             html = html.replace('aria-label="输入你的困惑"></textarea>',
                                 'aria-label="输入你的困惑">' + escape(DEMO_QUESTION) + '</textarea>', 1)
@@ -83,6 +111,10 @@ class ReviewerHandler(Handler):
         if status == 503 and isinstance(value, dict):
             value = {**value, "message": "此功能仅在正式模式可用；离线评审演示只提供固定案例。"}
         return super().send(status, value, content_type)
+
+    def active_people(self):
+        available = {row["person"] for row in self.server.rows}
+        return [profile for profile in people_catalog() if profile["person"] in available]
 
     def source_details(self, data):
         pid = data.get("passage_id")
@@ -127,8 +159,7 @@ class ReviewerHandler(Handler):
 
 
 def create_demo(port=0):
-    wanted = {entry[0] for entry in SAMPLE}
-    rows = [row for row in load_library() if row["id"] in wanted]
+    rows = demo_rows()
     cards = {}
 
     def fixed_answer(question):

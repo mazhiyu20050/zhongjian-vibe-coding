@@ -39,7 +39,7 @@ class ReviewerDemoTests(unittest.TestCase):
             text = response.read().decode("utf-8")
             return json.loads(text) if response.headers.get_content_type() == "application/json" else text
 
-    def test_named_preview_with_real_corpus_anchors_and_local_history(self):
+    def test_preview_with_classical_excerpt_anchors_and_local_history(self):
         self.assertIn("离线评审演示", self.call("/"))
         self.assertIn("固定示例", self.call("/"))
         self.assertIn(DEMO_QUESTION + "</textarea>", self.call("/"))
@@ -50,6 +50,7 @@ class ReviewerDemoTests(unittest.TestCase):
         self.assertEqual(answer["mode"], "reviewer_demo")
         cards = answer["result"]["cards"]
         self.assertGreaterEqual(len({card["person"] for card in cards}), 3)
+        self.assertEqual(len(self.server.rows), 3)
         self.assertTrue(answer["result"]["display_reply"])
         for card in cards:
             self.assertTrue(card["work"])
@@ -57,6 +58,8 @@ class ReviewerDemoTests(unittest.TestCase):
             self.assertEqual(card["paragraph"][start:end], card["quote"])
             source = self.call("/api/context?id=" + card["unit_id"])
             self.assertIn(card["quote"], source["text"])
+            self.assertTrue(source["source_url"].startswith("https://zh.wikisource.org/"))
+            self.assertLess(len(source["text"]), 30)
             detail = self.call("/api/source/details", {
                 "passage_id": card["id"], "highlight_start": start,
                 "highlight_end": end, "question": DEMO_QUESTION,
@@ -67,7 +70,9 @@ class ReviewerDemoTests(unittest.TestCase):
     def test_agent_biographies_are_in_the_offline_catalog(self):
         people = {person["person"]: person for person in self.call("/api/agents")["agents"]}
         self.assertIn("王阳明", people)
-        self.assertIn("老子", people)
+        self.assertEqual(set(people), {"王阳明", "孔子", "老子"})
+        self.assertTrue(all(not entry.get("portrait") for entry in people.values()))
+        self.assertIn("未分发第三方肖像", self.call("/portrait-credits"))
         for person in people.values():
             with self.subTest(person=person["person"]):
                 self.assertTrue(person["biography"])

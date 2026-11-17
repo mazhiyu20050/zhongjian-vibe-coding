@@ -1,0 +1,55 @@
+[
+  {
+    "person": "王阳明",
+    "wikidata_id": "Q378462",
+    "identity_url": "https://www.wikidata.org/wiki/Q378462",
+    "aliases": [
+      "王守仁",
+      "阳明"
+    ],
+    "tags": [
+      "行动",
+      "实践",
+      "自省"
+    ],
+    "description": "在实际行动中弄清问题",
+    "biography": "王守仁（1472—1529），字伯安，明代思想家，常称王阳明。其有关学习、修养和行动的问答由弟子整理，主要见于《传习录》。",
+    "lifespan": "1472—1529",
+    "pinyin": "wangyangming"
+  },
+  {
+    "person": "孔子",
+    "wikidata_id": "Q4604",
+    "identity_url": "https://www.wikidata.org/wiki/Q4604",
+    "aliases": [
+      "孔丘",
+      "仲尼"
+    ],
+    "tags": [
+      "沟通",
+      "学习",
+      "分工"
+    ],
+    "description": "理解对方后再定规则",
+    "biography": "孔丘（约前551—前479），字仲尼，春秋时期鲁国思想家。后世所见的《论语》汇录了他和部分弟子的言行。",
+    "lifespan": "约前551—前479",
+    "pinyin": "kongzi"
+  },
+  {
+    "person": "老子",
+    "wikidata_id": "Q35089",
+    "identity_url": "https://www.wikidata.org/wiki/Q35089",
+    "aliases": [
+      "李耳",
+      "老聃"
+    ],
+    "tags": [
+      "取舍",
+      "节奏",
+      "小步行动"
+    ],
+    "description": "先解决小而明确的难点",
+    "biography": "老子是道家传统中的重要人物，常与《道德经》联系在一起。其生平年代和相关文献的形成过程仍有争议。",
+    "pinyin": "laozi"
+  }
+]
