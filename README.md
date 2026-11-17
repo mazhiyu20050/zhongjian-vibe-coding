@@ -14,7 +14,14 @@ py -3.12 -m venv .review-venv
 .\.review-venv\Scripts\python.exe reviewer_demo.py
 ```
 
-已有 Python 3.11 时，将 `py -3.12` 换成 `py -3.11`。如果 Python 是经 uv 安装、没有注册到 Windows 启动器，把创建环境一行换成 `uv venv --python 3.12 .review-venv`，后两行保持不变。终端打印本机 URL 后，在浏览器打开。端口已占用时给启动命令加 `--port 0`；按 Ctrl+C 退出。不需要先安装桌面 EXE。
+已有 Python 3.11 时，将 `py -3.12` 换成 `py -3.11`。如果 Python 是经 uv 安装、没有注册到 Windows 启动器，用下面两行替换创建环境和安装依赖，再执行同一个启动命令：
+
+```powershell
+uv venv --python 3.12 .review-venv
+uv pip install --python .\.review-venv\Scripts\python.exe -r requirements.txt
+```
+
+终端打印本机 URL 后，在浏览器打开。端口已占用时给启动命令加 `--port 0`；按 Ctrl+C 退出。不需要先安装桌面 EXE。
 
 ### 评审建议操作
 
